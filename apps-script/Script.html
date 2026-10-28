@@ -1,0 +1,435 @@
+<script>
+/* =====================================================================
+   KẾT NỐI BACKEND (Google Apps Script)
+   Đổi tên 3 hàm dưới cho trùng với hàm trong Code.gs của bạn:
+     apiLogin(classId, pin)        -> { ok, message, cls:{name,term,code,size,teacher,leader}, sessions:[...], students:[{mssv,name,cls}] }
+     apiSubmit(payload)            -> { ok, message }
+     apiReportWrong(classId, text) -> { ok }
+   Khi chạy ngoài Apps Script (mở file thẳng trên trình duyệt) sẽ dùng DỮ LIỆU MẪU để xem thử.
+   ===================================================================== */
+const GAS = (typeof google !== 'undefined' && google.script && google.script.run);
+function callGas(fn, ...args){
+  return new Promise((resolve, reject)=>{
+    if(!GAS){ return setTimeout(()=>resolve(demo(fn,args)), 900); }
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(e)) [fn](...args);
+  });
+}
+function demo(fn,a){
+  if(fn==='apiLogin'){
+    if(!a[0]) return {ok:false,message:'Không tìm thấy lớp.'};
+    if(String(a[0]).toUpperCase()!=='ABCDEFGH'||a[1]!=='1234') return {ok:false,message:'Mã lớp hoặc mã PIN không đúng.'};
+    const names=['Nguyễn Ngọc Gia Bảo','Nguyễn Văn Bắc','Lê Đại Nam','Trần Mỹ Ngọc','Nguyễn Anh Quân','Võ Văn Thúy Sơn','Đoàn Duy Thịnh','Đoàn Viên An Thy','Trần Thanh Tuấn','Văn Ngọc Thảo Vy','Phạm Minh Khôi','Lý Thu Hà','Hoàng Gia Huy','Bùi Thanh Tâm','Đặng Quốc Việt','Ngô Bảo Châu','Dương Khánh Linh','Huỳnh Tấn Phát'];
+    return {ok:true,
+      cls:{name:'CƠ SỞ DỮ LIỆU',term:'HK1 2026-2027',code:a[0].toUpperCase(),size:18,teacher:'Nguyễn Đặng Thế Vinh',leader:'Lê Đại Nam'},
+      sessions:Array.from({length:15},(_,i)=>({n:i+1,label:`Buổi ${i+1} · tuần ${12+i}/10`})),
+      students:names.map((n,i)=>({mssv:'9748260'+(4231+i*37),name:n,cls:i%3?'26CNTT':'26CVM'}))};
+  }
+  return {ok:true,message:'Đã gửi điểm danh (chế độ xem thử).'};
+}
+
+
+/* ========================= CẤU HÌNH ẢNH / VIDEO =========================
+   Ảnh + video lấy từ GitHub qua jsDelivr. Đổi ASSET_BASE nếu bạn đổi repo/nhánh/thư mục.
+   Cấu trúc thư mục cần có:  assets/logo.png · assets/video/*.mp4 · assets/poster/*.jpg  */
+const ASSET_BASE='https://cdn.jsdelivr.net/gh/oanhvocungsi/siu-vip@main/assets/';
+const VEXT='.mp4';
+const vurl=n=>ASSET_BASE+'video/'+n+VEXT, purl=n=>ASSET_BASE+'poster/'+n+'.jpg';
+document.querySelectorAll('img[data-a]').forEach(i=>{i.src=ASSET_BASE+i.dataset.a});
+
+/* ========================= tiện ích ========================= */
+const $=s=>document.querySelector(s);
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+function toast(m,ms=2600){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),ms)}
+function show(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$(id).classList.add('active')}
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let session=null;
+
+/* ========================= BỘ PHÁT CLIP =========================
+   Mỗi clip = 1 thẻ <video> xếp chồng, chuyển clip bằng làm mờ chéo.
+   play({from, rate, onend}) · pause() · skip() · loop=[giây bắt đầu, giây kết thúc] cho clip lặp.
+   Nếu trình duyệt chặn phát (tiết kiệm pin...), tự chuyển tiếp bằng đồng hồ để luồng không bị kẹt. */
+const LAYERS=new Set();
+class Layer{
+  constructor(host,name,o={}){
+    this.name=name; this.host=host; this.loop=o.loop||null; this.loopRate=o.loopRate||0; this.end=null; this.endCb=null; this.stopped=true;
+    const v=document.createElement('video');
+    v.muted=true; v.defaultMuted=true; v.playsInline=true; v.loop=false;
+    v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline',''); v.setAttribute('muted','');
+    v.setAttribute('aria-hidden','true'); v.tabIndex=-1; v.disablePictureInPicture=true;
+    v.preload='auto'; v.poster=purl(name); v.dataset.name=name; v.src=vurl(name);
+    v.addEventListener('ended',()=>this._done());
+    host.appendChild(v); this.v=v; LAYERS.add(this);
+  }
+  show(){ for(const x of this.host.children) if(x.tagName==='VIDEO') x.classList.toggle('on',x===this.v); }
+  play({from=null,rate=1,to=null,onend=null}={}){
+    const v=this.v; this.endCb=onend; this.end=to; this.stopped=false; clearTimeout(this.fb); this.fb=null;
+    if(from!==null){ try{v.currentTime=from}catch(e){} }
+    v.playbackRate=rate; this.rate=rate;
+    if(reduce){ this._fallback(500); return; }
+    const p=v.play(); if(p&&p.catch) p.catch(()=>this._fallback(900));
+    const t0=v.currentTime; clearTimeout(this.wd);
+    this.wd=setTimeout(()=>{ if(!this.stopped&&!v.ended&&Math.abs(v.currentTime-t0)<0.03) this._fallback(Math.max(900,((this.end||v.duration||5)-t0)/rate*1000)); },2500);
+  }
+  pause(){ this.stopped=true; this.end=null; clearTimeout(this.wd); clearTimeout(this.fb); this.fb=null; try{this.v.pause()}catch(e){} }
+  _fallback(ms){ if(this.fb) return; this.fb=setTimeout(()=>{this.fb=null;this._done()},ms); }
+  _done(){ const cb=this.endCb; this.endCb=null; if(cb) cb(); }
+  skip(){ const cb=this.endCb; this.endCb=null; this.pause(); if(cb) cb(); }
+  destroy(){ this.pause(); LAYERS.delete(this); this.v.remove(); }
+}
+(function tick(){
+  for(const L of LAYERS){
+    const v=L.v; if(v.paused) continue; const t=v.currentTime;
+    if(L.end!==null&&t>=L.end){ L.end=null; try{v.pause()}catch(e){} L._done(); continue; }   // chạy tới giây `to` rồi dừng ở khung cuối
+    if(L.loop){
+      if(t>=L.loop[1]) v.currentTime=L.loop[0];
+      else if(L.loopRate&&t>=L.loop[0]&&v.playbackRate!==L.loopRate) v.playbackRate=L.loopRate;
+    }
+  }
+  requestAnimationFrame(tick);
+})();
+
+/* ========================= CHỌN THIẾT BỊ ========================= */
+/* src = vị trí bàn phím / điện thoại trong khung (tỉ lệ 0–1) – nơi chữ bay ra */
+/* Mỗi thiết bị: lay = clip lấy máy ra (cắt từ layFrom→layTo, tua nhanh layRate lần ≈ 2-2.5s) · go = clip gõ (lặp trong loop)
+   sai/win = clip sai/thành công (cắt đoạn đáng xem). src = vị trí bàn phím/điện thoại trong khung để chữ bay ra. */
+const DEV={
+  phone :{lay:'lay_dt',  layFrom:.5, layTo:5.0, layRate:2,  go:'bam_dt', loop:[.25,7.9], sai:'sai_mobi', saiA:[.4,4.6], win:'mobi_hanh_cong', winA:[1.2,5.0], src:[.39,.64]},
+  laptop:{lay:'lay_lap', layFrom:.4, layTo:5.5, layRate:2,  go:'go_lap', loop:[.3,7.4],  sai:'sai_lap',  saiA:[.4,4.6], win:'lap_thanh_cong', winA:[1.2,5.0], src:[.55,.70]}
+};
+const state={dev:null,laid:false,laying:false,flying:false,ready:false,burst:false};
+let SC={};   // các clip trong cảnh đăng nhập: ngoi · lay · go · sai
+const tiles=$('#tiles');
+(function(){
+  const last=store.get('att_dev'); const t=DEV[last]&&tiles.querySelector('[data-dev="'+last+'"]');
+  if(t){const b=document.createElement('span');b.className='rec';b.textContent='Lần trước';t.appendChild(b);}
+})();
+tiles.addEventListener('click',e=>{
+  const t=e.target.closest('.tile'); if(!t) return;
+  tiles.classList.add('chosen'); t.classList.add('sel');
+  setTimeout(()=>chooseDevice(t.dataset.dev),450);
+});
+function resetScene(){ for(const k in SC) SC[k].destroy(); SC={}; $('#scene').innerHTML=''; }
+function chooseDevice(dev){
+  const c=DEV[dev]; state.dev=dev; state.laid=false; state.laying=false; store.set('att_dev',dev);
+  resetScene(); const host=$('#scene');
+  SC.ngoi=new Layer(host,'ngoi',{loop:[4.5,7.0]}); SC.lay=new Layer(host,c.lay); SC.go=new Layer(host,c.go,{loop:c.loop}); SC.sai=new Layer(host,c.sai);
+  $('#loginWrap').dataset.phase='login';
+  SC.ngoi.show(); SC.ngoi.play({from:3});          // mèo ngồi trên sách giữa hoa: ~1.5s tỉnh dậy rồi lặp thở/chớp mắt
+}
+$('#changeDev').addEventListener('click',()=>{
+  resetScene(); state.dev=null; $('#errMsg').textContent='';
+  tiles.classList.remove('chosen'); tiles.querySelectorAll('.tile').forEach(t=>t.classList.remove('sel'));
+  $('#loginWrap').dataset.phase='pick';
+});
+
+/* ========================= NHẬP LIỆU: MÈO GÕ THEO NGƯỜI DÙNG ========================= */
+let keyTimes=[], lastKey=0, idleT, pawSide=0;
+function caretPoint(inp){
+  const r=inp.getBoundingClientRect();
+  const w=Math.min(inp.value.length*9.5,r.width-70);
+  return [r.left+44+w, r.top+r.height/2];
+}
+// lần đầu chạm vào ô nhập: mèo lôi laptop / điện thoại ra (~2s). Gõ sớm hơn → nhảy thẳng tới đoạn đặt máy xuống.
+function ensureLay(){
+  if(!state.dev||state.laid||state.laying) return;
+  state.laying=true; warmStage();
+  const c=DEV[state.dev]; SC.lay.show();
+  SC.lay.play({from:c.layFrom,to:c.layTo,rate:c.layRate,onend:startTyping});
+}
+function startTyping(){
+  const c=DEV[state.dev]; if(!c||!SC.go) return;
+  state.laying=false; state.laid=true;
+  try{SC.go.v.currentTime=c.loop[0]}catch(e){}
+  SC.go.show(); SC.go.play({rate:performance.now()-lastKey<700?1.2:IDLE_RATE});
+}
+const IDLE_RATE=.5;           // lúc không gõ: mèo vẫn gõ chậm, không đứng khựng
+function skipLay(){           // người dùng gõ khi mèo chưa kịp lấy máy: tua tới 0.6s cuối rồi chuyển mượt sang gõ
+  const c=DEV[state.dev], v=SC.lay&&SC.lay.v; if(!state.laying||!v) return;
+  if(c.layTo-v.currentTime>.75){ try{v.currentTime=c.layTo-.6}catch(e){} }
+}
+// mèo gõ nhanh/chậm theo tốc độ gõ của người dùng
+function goPlay(){
+  const now=performance.now(); keyTimes=keyTimes.filter(t=>now-t<1500);
+  const cps=keyTimes.length/1.5, rate=Math.max(.85,Math.min(2.4,.75+cps*.3));
+  const L=SC.go; if(!L) return;
+  if(!L.v.classList.contains('on')) L.show();
+  L.v.playbackRate=rate;
+  if(L.v.paused) L.play({rate});
+}
+function goIdle(){ const L=SC.go; if(!L||!state.laid) return; L.v.playbackRate=IDLE_RATE; if(L.v.paused) L.play({rate:IDLE_RATE}); }
+function onType(e){
+  if(!state.dev) return;
+  const inp=e.target, now=performance.now(); lastKey=now; keyTimes.push(now);
+  ensureLay(); skipLay();
+  if(e.inputType&&e.inputType.startsWith('insert')&&e.data) flyLetter(e.data,inp);
+  if(state.laid){ goPlay(); clearTimeout(idleT); idleT=setTimeout(goIdle,450); }
+}
+let flyLast=0, flyLive=0;
+function flyLetter(ch,inp){
+  if(reduce) return;
+  const now=performance.now();
+  if(now-flyLast<85||flyLive>=5) return;           // gõ nhanh: bỏ bớt chữ bay để không dính thành một cục
+  flyLast=now; flyLive++;
+  const r=$('#scene').getBoundingClientRect(), s=DEV[state.dev].src;
+  const jx=(Math.random()-.5)*14;
+  const sx=r.left+r.width*s[0]+jx, sy=r.top+r.height*s[1];
+  const [px,py]=caretPoint(inp);
+  const el=document.createElement('div'); el.className='flyletter';
+  el.style.cssText='position:fixed;left:0;top:0;z-index:50;font-weight:800;font-size:'+(innerWidth<600?17:21)+'px;color:#1e3a8a;pointer-events:none;will-change:transform';
+  el.textContent=inp.type==='password'?'•':ch; document.body.appendChild(el);
+  el.animate([
+    {transform:`translate(${sx}px,${sy}px) scale(1.3)`,opacity:1},
+    {transform:`translate(${(sx+px)/2}px,${Math.min(sy,py)-34}px) scale(1.05)`,opacity:1,offset:.5},
+    {transform:`translate(${px}px,${py-4}px) scale(.8)`,opacity:0}
+  ],{duration:430,easing:'ease-in'}).onfinish=()=>{el.remove();flyLive--};
+}
+['classId','pin'].forEach(id=>{
+  const i=$('#'+id);
+  i.addEventListener('input',onType);
+  i.addEventListener('focus',ensureLay);
+});
+$('#classId').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#pin').focus()}});
+$('#pin').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,6)});
+(function(){const c=store.get('att_class'); if(c){$('#classId').value=c}})();   // nhớ mã lớp (không nhớ PIN)
+
+/* ========================= STAGE: BAY → LOGO ========================= */
+let S=null, cur=null;                       // S = các clip nền đen
+const NAT={chuan_bi_bay:[832,614],bay1:[768,974],nhan_logo:[576,1024],cho_logo:[576,1024]};
+function warmStage(){
+  if(S) return; const host=$('#stageVideos');
+  S={chuan:new Layer(host,'chuan_bi_bay'),
+     fly:new Layer(host,'bay1',{loop:[1.5,4.0]}),
+     land:new Layer(host,'nhan_logo'),
+     wait:new Layer(host,'cho_logo',{loop:[5,7.4],loopRate:1})};
+  layoutStage();
+}
+// Vòng sáng trong clip logo: tâm (50%, 25.6%) · bán kính trong ≈ 20.5% chiều rộng khung
+const RING={cx:.5,cy:.256,r:.205};
+const PORTRAIT_H=.76;      // chiều cao clip logo so với màn hình (nhỏ hơn = mèo bé hơn). 0.76 → vòng logo nằm ~43% chiều cao, gần giữa màn
+const FLY_SCALE=.68;       // clip bay: thu nhỏ so với "vừa khít màn hình"
+function layoutStage(){
+  if(!S) return; const cw=innerWidth, ch=innerHeight;
+  for(const k in S){
+    const L=S[k], [vw,vh]=NAT[L.name], portrait=(L.name==='nhan_logo'||L.name==='cho_logo');
+    let w,h,x,y;
+    if(portrait){ h=ch*PORTRAIT_H; w=h*vw/vh; if(w>cw){w=cw;h=w*vh/vw} x=(cw-w)/2; y=ch-h-ch*.01; }
+    else { const sc=Math.min(cw/vw,ch/vh)*FLY_SCALE; w=vw*sc; h=vh*sc; x=(cw-w)/2; y=(ch-h)/2+ch*.04; }
+    const st=L.v.style;
+    st.left=x+'px'; st.top=y+'px'; st.width=w+'px'; st.height=h+'px';
+    st.setProperty('--fx',w<cw-2?'12%':'0%'); st.setProperty('--fy',portrait?'16%':'12%');
+    L.rect={x,y,w,h};
+  }
+  const R=S.wait.rect, d=R.w*RING.r*2*.93, cx=R.x+R.w*RING.cx, cy=R.y+R.h*RING.cy, lb=$('#logoBtn').style;
+  lb.width=lb.height=d+'px'; lb.left=(cx-d/2)+'px'; lb.top=(cy-d/2)+'px';
+  const st=$('#stage').style; st.setProperty('--rx',cx+'px'); st.setProperty('--ry',cy+'px');
+  const hs=$('#stHint').style; hs.top=Math.max(14,cy-R.w*RING.r*1.35-40)+'px';
+}
+addEventListener('resize',layoutStage);
+function once(L,opts){ return new Promise(res=>{ cur=L; L.play({...opts,onend:()=>{cur=null;res();}}); }); }
+$('#skipBtn').addEventListener('click',()=>{ if(cur) cur.skip(); });
+
+/* Chuỗi bay rút gọn (~3s + thời gian máy chủ): chuẩn bị 0.75s → bay (lặp, chờ máy chủ ≥0.45s) → hạ cánh 1.1s → ngước nhìn + hiện logo */
+async function runFlight(loginP){
+  warmStage(); layoutStage();
+  state.flying=true; state.ready=false;
+  for(const k in S) S[k].pause();
+  const lb=$('#logoBtn'); lb.classList.remove('show','down'); lb.getAnimations().forEach(a=>a.cancel());
+  $('#stHint').textContent='Chạm vào logo để vào lớp';
+  $('#stHint').classList.remove('on'); $('#stage').classList.add('on'); $('#stage').classList.remove('win');
+  $('#skipBtn').classList.add('on'); $('#stLoad').classList.add('on');
+  S.chuan.show(); await once(S.chuan,{from:.6,to:2.0,rate:2.4});
+  S.fly.show(); S.fly.play({from:1.0,rate:1});
+  const [res]=await Promise.all([loginP,sleep(300)]);
+  if(!res||!res.ok) return res||{ok:false};
+  $('#stLoad').classList.remove('on');
+  S.land.show(); await once(S.land,{from:.5,to:3.0,rate:2.6});
+  S.wait.show(); S.wait.play({from:2.2,rate:2});
+  S.fly.pause(); S.chuan.pause();
+  $('#skipBtn').classList.remove('on');
+  setTimeout(()=>{ if(!$('#stage').classList.contains('on')||state.burst) return;
+    lb.classList.add('show'); $('#stHint').classList.add('on'); state.ready=true; },700);
+  state.flying=false;
+  return res;
+}
+function backToLogin(msg){
+  state.flying=false; cur=null;
+  $('#stage').classList.remove('on'); $('#skipBtn').classList.remove('on'); $('#stLoad').classList.remove('on');
+  setTimeout(()=>{ if(S) for(const k in S) S[k].pause(); },650);
+  setBusy(false);
+  $('#errMsg').textContent=msg; flag('#pin');
+  if(SC.sai){ const a=DEV[state.dev].saiA; SC.sai.show(); SC.sai.play({from:a[0],to:a[1],rate:1.5,onend:()=>{ if(state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); } }}); }   // mèo bối rối → buồn (~2.8s) → quay lại gõ chậm
+}
+
+/* ========================= ĐĂNG NHẬP ========================= */
+function flag(sel){const el=$(sel);el.classList.add('err');setTimeout(()=>el.classList.remove('err'),700)}
+function setBusy(on){
+  $('#goBtn').disabled=on; $('#goBtn').textContent=on?'Đang xử lý…':'Vào lớp →';
+}
+$('#loginForm').addEventListener('submit',async e=>{
+  e.preventDefault(); if(state.flying||state.burst) return;
+  const classId=$('#classId').value.trim(), pin=$('#pin').value.trim();
+  $('#errMsg').textContent='';
+  let bad=false;
+  if(!classId){flag('#classId');bad=true}
+  if(!/^\d{4,6}$/.test(pin)){flag('#pin');bad=true}
+  if(bad){$('#errMsg').textContent='Vui lòng nhập mã lớp và mã PIN (4–6 số).';return}
+  setBusy(true); if(SC.go) SC.go.pause(); if(SC.lay&&state.laying){state.laying=false;state.laid=true;SC.lay.pause();}
+  if($('#remember').checked) store.set('att_class',classId); else store.del('att_class');
+  const loginP=callGas('apiLogin',classId,pin).catch(()=>({ok:false,message:'Không kết nối được máy chủ. Thử lại sau.'}));
+  const res=await runFlight(loginP);
+  if(!res||!res.ok){ backToLogin((res&&res.message)||'Đăng nhập không thành công.'); return; }
+  session={classId,pin,...res};
+});
+
+/* ========================= NHẤN LOGO → TIA ĐIỆN → VÀO TRANG ========================= */
+const cv=$('#fx'), ctx=cv.getContext('2d');
+let bolts=[],rings=[],fxRun=false,fxCx=0,fxCy=0,flash=0,fxD=1,pressed=false;
+function bolt(x,y,ang,len,D){
+  const pts=[[x,y]]; let cx=x,cy=y; const seg=18*D;
+  for(let d=0;d<len;d+=seg){ang+=(Math.random()-.5)*.9;cx+=Math.cos(ang)*seg;cy+=Math.sin(ang)*seg;pts.push([cx,cy])}
+  return {pts,born:performance.now(),life:700+Math.random()*400,speed:1800*D,seg};
+}
+function fxFrame(now){
+  if(!fxRun) return;
+  const W=cv.width,H=cv.height,R=Math.hypot(W,H)/2; ctx.clearRect(0,0,W,H);
+  if(flash>.01){const g=ctx.createRadialGradient(fxCx,fxCy,0,fxCx,fxCy,Math.min(W,H)*.6);
+    g.addColorStop(0,`rgba(130,195,255,${flash*.6})`);g.addColorStop(1,'rgba(130,195,255,0)');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);flash*=.95;}
+  for(const r of rings){const k=(now-r.born)/r.life; if(k<0||k>=1) continue;
+    ctx.strokeStyle=`rgba(147,220,255,${(1-k)*.9})`;ctx.lineWidth=(3+6*(1-k))*fxD;
+    ctx.beginPath();ctx.arc(fxCx,fxCy,k*R*1.2,0,7);ctx.stroke();}
+  ctx.shadowColor='#60a5fa';ctx.shadowBlur=14*fxD;ctx.lineCap='round';ctx.lineJoin='round';
+  for(const b of bolts){
+    const age=now-b.born; if(age>b.life||age<0) continue;
+    const reach=Math.min(b.pts.length,Math.ceil(age/1000*b.speed/b.seg)+1), fade=1-age/b.life;
+    ctx.strokeStyle=`rgba(224,242,254,${fade})`;ctx.lineWidth=(2+2*fade)*fxD;
+    ctx.beginPath();ctx.moveTo(b.pts[0][0],b.pts[0][1]);
+    for(let i=1;i<reach;i++)ctx.lineTo(b.pts[i][0],b.pts[i][1]);
+    ctx.stroke();
+  }
+  ctx.shadowBlur=0;
+  requestAnimationFrame(fxFrame);
+}
+const lb=$('#logoBtn');
+function press(){ if(!state.ready||state.burst) return; pressed=true; lb.classList.add('down'); }
+function release(){
+  if(!pressed) return; pressed=false; lb.classList.remove('down');
+  if(!state.ready||state.burst) return;
+  state.burst=true; state.ready=false;
+  fxD=Math.min(2,devicePixelRatio||1); cv.width=innerWidth*fxD; cv.height=innerHeight*fxD;
+  const lr=lb.getBoundingClientRect(); fxCx=(lr.left+lr.width/2)*fxD; fxCy=(lr.top+lr.height/2)*fxD;
+  const now=performance.now(), R=Math.hypot(cv.width,cv.height); flash=1; bolts=[]; rings=[];
+  for(let i=0;i<22;i++) bolts.push(bolt(fxCx,fxCy,i/22*Math.PI*2+Math.random()*.3,R*(.8+Math.random()*.3),fxD));
+  for(let i=0;i<3;i++) rings.push({born:now+i*160,life:1100});
+  fxRun=true; requestAnimationFrame(fxFrame);
+  lb.style.animation='none';
+  lb.animate([{opacity:1,scale:'1',filter:'blur(0px)'},{opacity:0,scale:'1.6',filter:'blur(8px)'}],{duration:900,delay:150,fill:'forwards',easing:'ease-in'});
+  $('#stHint').textContent='✓ Thành công! Đang vào lớp…'; $('#stHint').classList.add('on'); $('#stage').classList.add('win');   // mèo nhảy lên mừng cùng lúc tia điện nổ
+  setTimeout(()=>{ openApp(); show('#app'); $('#stage').classList.remove('on'); },1050);
+  setTimeout(()=>{
+    fxRun=false; bolts=[]; rings=[]; ctx.clearRect(0,0,cv.width,cv.height);
+    if(S) for(const k in S) S[k].pause();
+    lb.getAnimations().forEach(a=>a.cancel()); lb.classList.remove('show'); lb.style.animation='';
+    $('#stage').classList.remove('win'); $('#stHint').classList.remove('on');
+    state.burst=false;
+  },1800);
+}
+lb.addEventListener('pointerdown',e=>{e.preventDefault();press()});
+addEventListener('pointerup',release);
+addEventListener('pointercancel',()=>{pressed=false;lb.classList.remove('down')});
+lb.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();press();setTimeout(release,160)}});
+
+/* ========================= ĐIỂM DANH ========================= */
+let marks={}; // mssv -> 'bad' | 'warn'
+function openApp(){
+  const s=session, c=s.cls||{};
+  $('#clsName').textContent=c.name||s.classId;
+  $('#clsMeta').innerHTML=[`${c.term||''} · ${c.code||s.classId} · Sĩ số ${(s.students||[]).length}`, c.teacher?`GV: ${c.teacher}`:'', c.leader?`Lớp trưởng: ${c.leader}`:''].filter(Boolean).join('<br>');
+  const sel=$('#session'); sel.innerHTML=(s.sessions||[{n:1,label:'Buổi 1'}]).map(x=>`<option value="${x.n}">${x.label}</option>`).join('');
+  $('#date').value=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+  marks={}; setMode('study'); $('#q').value=''; render(); scrollTo(0,0);
+}
+let mode='study';
+function setMode(m){mode=m;document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.v===m));
+  $('#listArea').classList.toggle('hidden',m==='off'); updateSummary()}
+$('#seg').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setMode(b.dataset.v)});
+$('#session').addEventListener('change',()=>{updateSummary()});
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function render(){
+  const q=$('#q').value.trim().toLowerCase(); const list=$('#list');
+  const arr=(session.students||[]).map((s,i)=>({...s,i})).filter(s=>!q||s.name.toLowerCase().includes(q)||String(s.mssv).includes(q));
+  list.innerHTML=arr.length?arr.map(s=>`
+    <div class="stu ${marks[s.mssv]||''}" data-id="${esc(s.mssv)}">
+      <div class="info"><div class="nm">${s.i+1}. ${esc(s.name)}</div><div class="id">${esc(s.mssv)} · ${esc(s.cls||'')}</div></div>
+      <button class="b-bad" data-a="bad">Không phép</button><button class="b-warn" data-a="warn">Có phép</button>
+    </div>`).join(''):'<div class="empty">Không tìm thấy sinh viên.</div>';
+  updateSummary();
+}
+$('#list').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return; const row=b.closest('.stu'), id=row.dataset.id, a=b.dataset.a;
+  if(marks[id]===a) delete marks[id]; else marks[id]=a;       // bấm lại để bỏ chọn
+  row.className='stu '+(marks[id]||''); updateSummary();
+});
+$('#q').addEventListener('input',render);
+function counts(){const total=(session.students||[]).length;let bad=0,warn=0;Object.values(marks).forEach(v=>v==='bad'?bad++:warn++);return{total,bad,warn,ok:total-bad-warn}}
+function updateSummary(){
+  if(!session)return; const c=counts(), n=$('#session').value||1;
+  $('#nOk').textContent=c.ok;$('#nBad').textContent=c.bad;$('#nWarn').textContent=c.warn;
+  $('#sumTop').textContent=`Buổi ${n} · ${mode==='study'?'Có học':'Giảng viên nghỉ'}`;
+  $('#sumBot').textContent=mode==='study'?`Có mặt ${c.ok}/${c.total} · Vắng ${c.bad+c.warn}`:'Không điểm danh buổi này';
+}
+$('#clearAll').addEventListener('click',()=>{marks={};render();toast('Đã bỏ chọn – cả lớp có mặt')});
+$('#reportWrong').addEventListener('click',async()=>{
+  const t=prompt('Mô tả điều sai trong danh sách lớp (thiếu/thừa sinh viên, sai tên…):'); if(!t)return;
+  try{await callGas('apiReportWrong',session.classId,t);toast('Đã gửi báo sai danh sách. Cảm ơn bạn!')}catch(e){toast('Gửi thất bại, thử lại sau.')}
+});
+$('#sendBtn').addEventListener('click',async()=>{
+  const c=counts();
+  if(mode==='study' && !confirm(`Gửi điểm danh?\nCó mặt ${c.ok} · Không phép ${c.bad} · Có phép ${c.warn}`))return;
+  const btn=$('#sendBtn'); btn.disabled=true; btn.textContent='Đang gửi…';
+  const payload={classId:session.classId,pin:session.pin,session:+$('#session').value,date:$('#date').value,mode,
+    absent:Object.entries(marks).map(([mssv,v])=>({mssv,type:v==='bad'?'KP':'CP'}))};
+  try{const r=await callGas('apiSubmit',payload);
+    if(r&&r.ok) celebrate((r.message)||'Đã gửi điểm danh. Cảm ơn bạn!'); else toast((r&&r.message)||'Gửi không thành công',3200)}
+  catch(e){toast('Lỗi kết nối, chưa gửi được.')}
+  btn.disabled=false;btn.textContent='Gửi';
+});
+
+/* ========================= GỬI XONG: MÈO ĂN MỪNG ========================= */
+function celebrate(msg){
+  closeCheer(); const host=$('#cheerHost');
+  const L=new Layer(host,DEV[state.dev||'laptop'].win); celebrate.L=L; L.show();
+  $('#cheerMsg').textContent=msg; $('#cheer').classList.add('on');
+  const a=DEV[state.dev||'laptop'].winA; L.play({from:a[0],to:a[1],rate:1.35,onend:()=>{ celebrate._t=setTimeout(closeCheer,900); }});
+}
+function closeCheer(){
+  clearTimeout(celebrate._t); $('#cheer').classList.remove('on');
+  if(celebrate.L){celebrate.L.destroy();celebrate.L=null}
+}
+$('#cheer').addEventListener('click',closeCheer);
+$('#logoutBtn').addEventListener('click',()=>{
+  if(!confirm('Đổi sang lớp khác?'))return;
+  session=null; $('#pin').value=''; $('#errMsg').textContent=''; show('#login');
+  if(SC.go){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); }
+});
+
+/* ========================= BÀN PHÍM ẢO (điện thoại) =========================
+   Khi bàn phím mở, vùng nhìn thấy (visualViewport) bị thu nhỏ: thu gọn trang đăng nhập để mèo + 2 ô nhập luôn nằm trên bàn phím. */
+(function(){
+  const vv=window.visualViewport, root=document.documentElement; let base=0;
+  function fit(){
+    const h=vv?vv.height:innerHeight; base=Math.max(base,h);
+    root.style.setProperty('--vvh',h+'px'); root.style.setProperty('--vvt',(vv?vv.offsetTop:0)+'px');
+    const kb=matchMedia('(pointer:coarse)').matches&&h<base*.78;
+    root.classList.toggle('kb',kb);
+    if(kb&&!vv) scrollTo(0,0);
+  }
+  if(vv){ vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit); }
+  addEventListener('resize',fit);
+  addEventListener('orientationchange',()=>{ base=0; setTimeout(fit,350); });
+  ['classId','pin'].forEach(id=>$('#'+id).addEventListener('focus',()=>setTimeout(()=>{ fit(); $('#'+id).scrollIntoView({block:'nearest'}); },320)));
+  fit();
+})();
+</script>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light">
+<title>Điểm danh lớp học phần – SIU</title>
+<?!= include('Style'); ?>
+</head>
+<body>
+<!-- ======================= 1. CHỌN THIẾT BỊ + ĐĂNG NHẬP ======================= -->
+<section id="login" class="view active">
+  <div class="login-wrap" id="loginWrap" data-phase="pick">
+    <div class="brand">
+      <img data-a="logo.png" alt="SIU">
+      <div><b>Điểm danh lớp học phần</b><small>Phòng Tuyển sinh &amp; Công tác Sinh viên – SIU</small></div>
+    </div>
+
+    <div class="pick" id="pick">
+      <h1>Bạn đang dùng thiết bị nào?</h1>
+      <p class="sub">Chọn để chú mèo mang đúng dụng cụ cho bạn.</p>
+      <div class="tiles" id="tiles">
+        <button type="button" class="tile" data-dev="phone" aria-label="Điện thoại">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="5" width="28" height="54" rx="7" fill="#dbeafe"/><path d="M28 11h8"/><circle cx="32" cy="51" r="2.2" fill="currentColor"/></svg>
+          <span>Điện thoại</span>
+        </button>
+        <button type="button" class="tile" data-dev="laptop" aria-label="Máy tính">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><rect x="11" y="12" width="42" height="30" rx="4" fill="#dbeafe"/><path d="M4 51h56l-5-9H9z" fill="#c7d9fb"/></svg>
+          <span>Máy tính</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="scene" id="scene" aria-hidden="true"></div>
+
+    <form class="card" id="loginForm" autocomplete="off" novalidate>
+      <h1>Đăng nhập lớp trưởng</h1>
+      <p class="sub">Nhập mã lớp học phần và mã PIN do Phòng Tuyển sinh &amp; CTSV gửi.</p>
+      <div class="field">
+        <label for="classId">Mã lớp học phần</label>
+        <div class="inwrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/></svg>
+          <input id="classId" placeholder="VD: 2BAS0005_TA121" autocapitalize="characters" spellcheck="false" enterkeyhint="next">
+        </div>
+      </div>
+      <div class="field">
+        <label for="pin">Mã PIN (6 số)</label>
+        <div class="inwrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" enterkeyhint="go">
+        </div>
+      </div>
+      <label class="remember"><input type="checkbox" id="remember" checked> Ghi nhớ trên thiết bị này</label>
+      <button class="btn" id="goBtn" type="submit">Vào lớp →</button>
+      <div class="errmsg" id="errMsg" role="alert"></div>
+      <button type="button" class="link" id="changeDev">← Đổi thiết bị</button>
+    </form>
+  </div>
+</section>
+
+<!-- ======================= 2. STAGE: BAY → LOGO ======================= -->
+<div id="stage" aria-live="polite">
+  <div id="stageVideos"></div>
+  <canvas id="fx"></canvas>
+  <button type="button" class="st-skip" id="skipBtn">Bỏ qua ›</button>
+  <div class="st-load" id="stLoad"><i></i>Đang tìm lớp, vui lòng chờ...</div>
+  <div class="st-hint" id="stHint">Chạm vào logo để vào lớp</div>
+  <button type="button" id="logoBtn" aria-label="Nhấn để vào lớp"><img data-a="logo.png" alt="Logo SIU"></button>
+</div>
+
+<!-- ======================= 3. APP ======================= -->
+<section id="app" class="view">
+  <header class="topbar">
+    <div class="t"><b>Điểm danh lớp học phần</b><small>Phòng Tuyển sinh &amp; Công tác Sinh viên – SIU</small></div>
+    <button id="logoutBtn">Đổi lớp</button>
+  </header>
+  <main class="container">
+    <div class="panel">
+      <h2 id="clsName">—</h2>
+      <div class="meta" id="clsMeta"></div>
+
+      <label class="l" for="session">Buổi</label>
+      <select id="session"></select>
+
+      <label class="l">Buổi này</label>
+      <div class="seg" id="seg">
+        <button type="button" data-v="study" class="on">Có học</button>
+        <button type="button" data-v="off">Giảng viên nghỉ</button>
+      </div>
+
+      <label class="l" for="date">Ngày học</label>
+      <input type="date" id="date">
+
+      <div class="note">Em chép theo số điểm danh của giảng viên: chỉ chọn những bạn <b>VẮNG</b>. Bạn nào không chọn được tính là có mặt.</div>
+    </div>
+
+    <div id="listArea">
+      <div class="stats">
+        <div class="stat ok"><b id="nOk">0</b><span>Có mặt</span></div>
+        <div class="stat bad"><b id="nBad">0</b><span>Không phép</span></div>
+        <div class="stat warn"><b id="nWarn">0</b><span>Có phép</span></div>
+      </div>
+      <div class="search"><input type="search" id="q" placeholder="Tìm tên hoặc MSSV"></div>
+      <div id="list"></div>
+      <button class="ghost" id="clearAll">Bỏ chọn tất cả (cả lớp có mặt)</button>
+      <button class="ghost sm" id="reportWrong">⚠ Báo sai danh sách lớp</button>
+    </div>
+  </main>
+  <div class="bottombar">
+    <div class="sum"><b id="sumTop">Buổi 1 · Có học</b><span id="sumBot">Có mặt 0/0 · Vắng 0</span></div>
+    <button class="btn" id="sendBtn">Gửi</button>
+  </div>
+</section>
+
+
+
+<div id="cheer"><div class="cheer-card"><div id="cheerHost"></div><b id="cheerMsg">Đã gửi điểm danh!</b><small>Chạm để đóng</small></div></div>
+<div class="toast" id="toast"></div>
+
+<?!= include('Script'); ?>
+</body>
+</html>
