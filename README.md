@@ -22,3 +22,10 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 
 ## Chỉnh nhanh (đầu Script.html)
 `DEV` (đoạn cắt/tua clip), `PORTRAIT_H` (độ lớn mèo ở màn logo), `FLY_SCALE`, `IDLE_RATE`, `ASSET_BASE`.
+
+## Bản 3 (thêm)
+- Tiêu đề (logo + tên) ở đỉnh màn hình, căn giữa, cỡ chữ tự co theo thiết bị.
+- Nền mới: sóng tím–xanh góc dưới, lấp lánh, bóng dưới chân mèo; chữ "Small steps / Big goals" (màn ≥1700px).
+- Three.js (cdnjs r128, tải trong Index.html): sao gợn sóng dải màu, trái tim, mũ cử nhân rơi. Tự tắt nếu thiếu WebGL; tự giảm khi máy yếu (<38fps → chế độ "lite").
+- Cảnh bay: vẽ thêm tia điện toả toàn màn hình + hạt sáng + quầng sáng; viền clip làm mờ để không thấy khung video; clip chỉ hiện khi khung đầu sẵn sàng (chuyển mượt, không nháy).
+- Sửa nhân đôi ký tự trên điện thoại: bỏ autocapitalize, không ghi đè giá trị ô khi đang gõ, đo vị trí có nhớ tạm.

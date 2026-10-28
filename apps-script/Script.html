@@ -63,6 +63,12 @@ class Layer{
     v.addEventListener('ended',()=>this._done());
     host.appendChild(v); this.v=v; LAYERS.add(this);
   }
+  start(opts){   // phát + chuyển mờ chéo ngay khi khung hình đầu đã vẽ xong (mượt, không nháy)
+    this.play(opts); const v=this.v; let done=false;
+    const go=()=>{ if(!done){done=true; this.show();} };
+    if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(go);
+    setTimeout(go,v.requestVideoFrameCallback?280:90);
+  }
   show(){ for(const x of this.host.children) if(x.tagName==='VIDEO') x.classList.toggle('on',x===this.v); }
   play({from=null,rate=1,to=null,onend=null}={}){
     const v=this.v; this.endCb=onend; this.end=to; this.stopped=false; clearTimeout(this.fb); this.fb=null;
@@ -117,6 +123,7 @@ function chooseDevice(dev){
   resetScene(); const host=$('#scene');
   SC.ngoi=new Layer(host,'ngoi',{loop:[4.5,7.0]}); SC.lay=new Layer(host,c.lay); SC.go=new Layer(host,c.go,{loop:c.loop}); SC.sai=new Layer(host,c.sai);
   $('#loginWrap').dataset.phase='login';
+  setTimeout(warmStage,1200);                         // tải sẵn clip bay để lúc bấm Vào lớp không bị chờ
   SC.ngoi.show(); SC.ngoi.play({from:3});          // mèo ngồi trên sách giữa hoa: ~1.5s tỉnh dậy rồi lặp thở/chớp mắt
 }
 $('#changeDev').addEventListener('click',()=>{
@@ -127,8 +134,9 @@ $('#changeDev').addEventListener('click',()=>{
 
 /* ========================= NHẬP LIỆU: MÈO GÕ THEO NGƯỜI DÙNG ========================= */
 let keyTimes=[], lastKey=0, idleT, pawSide=0;
+function cRect(el){ const n=performance.now(), c=el._rc; if(c&&n-c.t<350) return c.r; const r=el.getBoundingClientRect(); el._rc={r,t:n}; return r; }   // đo vị trí có nhớ tạm → gõ nhanh không bị giật
 function caretPoint(inp){
-  const r=inp.getBoundingClientRect();
+  const r=cRect(inp);
   const w=Math.min(inp.value.length*9.5,r.width-70);
   return [r.left+44+w, r.top+r.height/2];
 }
@@ -136,14 +144,14 @@ function caretPoint(inp){
 function ensureLay(){
   if(!state.dev||state.laid||state.laying) return;
   state.laying=true; warmStage();
-  const c=DEV[state.dev]; SC.lay.show();
-  SC.lay.play({from:c.layFrom,to:c.layTo,rate:c.layRate,onend:startTyping});
+  const c=DEV[state.dev];
+  SC.lay.start({from:c.layFrom,to:c.layTo,rate:c.layRate,onend:startTyping});
 }
 function startTyping(){
   const c=DEV[state.dev]; if(!c||!SC.go) return;
   state.laying=false; state.laid=true;
   try{SC.go.v.currentTime=c.loop[0]}catch(e){}
-  SC.go.show(); SC.go.play({rate:performance.now()-lastKey<700?1.2:IDLE_RATE});
+  SC.go.start({rate:performance.now()-lastKey<700?1.2:IDLE_RATE});
 }
 const IDLE_RATE=.5;           // lúc không gõ: mèo vẫn gõ chậm, không đứng khựng
 function skipLay(){           // người dùng gõ khi mèo chưa kịp lấy máy: tua tới 0.6s cuối rồi chuyển mượt sang gõ
@@ -164,7 +172,7 @@ function onType(e){
   if(!state.dev) return;
   const inp=e.target, now=performance.now(); lastKey=now; keyTimes.push(now);
   ensureLay(); skipLay();
-  if(e.inputType&&e.inputType.startsWith('insert')&&e.data) flyLetter(e.data,inp);
+  if(e.data&&e.inputType&&e.inputType.startsWith('insert')) flyLetter(e.data.slice(-1),inp);
   if(state.laid){ goPlay(); clearTimeout(idleT); idleT=setTimeout(goIdle,450); }
 }
 let flyLast=0, flyLive=0;
@@ -173,7 +181,7 @@ function flyLetter(ch,inp){
   const now=performance.now();
   if(now-flyLast<85||flyLive>=5) return;           // gõ nhanh: bỏ bớt chữ bay để không dính thành một cục
   flyLast=now; flyLive++;
-  const r=$('#scene').getBoundingClientRect(), s=DEV[state.dev].src;
+  const r=cRect($('#scene')), s=DEV[state.dev].src;
   const jx=(Math.random()-.5)*14;
   const sx=r.left+r.width*s[0]+jx, sy=r.top+r.height*s[1];
   const [px,py]=caretPoint(inp);
@@ -192,7 +200,8 @@ function flyLetter(ch,inp){
   i.addEventListener('focus',ensureLay);
 });
 $('#classId').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#pin').focus()}});
-$('#pin').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,6)});
+// chỉ ghi lại giá trị khi thật sự có ký tự lạ — ghi đè mỗi lần gõ làm bàn phím điện thoại (Gboard) nhân đôi ký tự
+$('#pin').addEventListener('input',e=>{ if(e.isComposing) return; const v=e.target.value.replace(/\D/g,'').slice(0,6); if(v!==e.target.value) e.target.value=v; });
 (function(){const c=store.get('att_class'); if(c){$('#classId').value=c}})();   // nhớ mã lớp (không nhớ PIN)
 
 /* ========================= STAGE: BAY → LOGO ========================= */
@@ -219,7 +228,7 @@ function layoutStage(){
     else { const sc=Math.min(cw/vw,ch/vh)*FLY_SCALE; w=vw*sc; h=vh*sc; x=(cw-w)/2; y=(ch-h)/2+ch*.04; }
     const st=L.v.style;
     st.left=x+'px'; st.top=y+'px'; st.width=w+'px'; st.height=h+'px';
-    st.setProperty('--fx',w<cw-2?'12%':'0%'); st.setProperty('--fy',portrait?'16%':'12%');
+    st.setProperty('--fx',w<cw-2?(portrait?'27%':'16%'):'0%'); st.setProperty('--fy',portrait?'14%':'10%');
     L.rect={x,y,w,h};
   }
   const R=S.wait.rect, d=R.w*RING.r*2*.93, cx=R.x+R.w*RING.cx, cy=R.y+R.h*RING.cy, lb=$('#logoBtn').style;
@@ -228,7 +237,7 @@ function layoutStage(){
   const hs=$('#stHint').style; hs.top=Math.max(14,cy-R.w*RING.r*1.35-40)+'px';
 }
 addEventListener('resize',layoutStage);
-function once(L,opts){ return new Promise(res=>{ cur=L; L.play({...opts,onend:()=>{cur=null;res();}}); }); }
+function once(L,opts){ return new Promise(res=>{ cur=L; L.start({...opts,onend:()=>{cur=null;res();}}); }); }
 $('#skipBtn').addEventListener('click',()=>{ if(cur) cur.skip(); });
 
 /* Chuỗi bay rút gọn (~3s + thời gian máy chủ): chuẩn bị 0.75s → bay (lặp, chờ máy chủ ≥0.45s) → hạ cánh 1.1s → ngước nhìn + hiện logo */
@@ -238,15 +247,15 @@ async function runFlight(loginP){
   for(const k in S) S[k].pause();
   const lb=$('#logoBtn'); lb.classList.remove('show','down'); lb.getAnimations().forEach(a=>a.cancel());
   $('#stHint').textContent='Chạm vào logo để vào lớp';
-  $('#stHint').classList.remove('on'); $('#stage').classList.add('on'); $('#stage').classList.remove('win');
+  $('#stHint').classList.remove('on'); $('#stage').classList.add('on'); $('#stage').classList.remove('win'); sbStart();
   $('#skipBtn').classList.add('on'); $('#stLoad').classList.add('on');
-  S.chuan.show(); await once(S.chuan,{from:.6,to:2.0,rate:2.4});
-  S.fly.show(); S.fly.play({from:1.0,rate:1});
+  await once(S.chuan,{from:.6,to:2.0,rate:2.4});
+  S.fly.start({from:1.0,rate:1});
   const [res]=await Promise.all([loginP,sleep(300)]);
   if(!res||!res.ok) return res||{ok:false};
   $('#stLoad').classList.remove('on');
-  S.land.show(); await once(S.land,{from:.5,to:3.0,rate:2.6});
-  S.wait.show(); S.wait.play({from:2.2,rate:2});
+  await once(S.land,{from:.5,to:3.0,rate:2.6});
+  S.wait.start({from:2.2,rate:2});
   S.fly.pause(); S.chuan.pause();
   $('#skipBtn').classList.remove('on');
   setTimeout(()=>{ if(!$('#stage').classList.contains('on')||state.burst) return;
@@ -255,12 +264,12 @@ async function runFlight(loginP){
   return res;
 }
 function backToLogin(msg){
-  state.flying=false; cur=null;
+  state.flying=false; cur=null; setTimeout(sbStop,600);
   $('#stage').classList.remove('on'); $('#skipBtn').classList.remove('on'); $('#stLoad').classList.remove('on');
   setTimeout(()=>{ if(S) for(const k in S) S[k].pause(); },650);
   setBusy(false);
   $('#errMsg').textContent=msg; flag('#pin');
-  if(SC.sai){ const a=DEV[state.dev].saiA; SC.sai.show(); SC.sai.play({from:a[0],to:a[1],rate:1.5,onend:()=>{ if(state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); } }}); }   // mèo bối rối → buồn (~2.8s) → quay lại gõ chậm
+  if(SC.sai){ const a=DEV[state.dev].saiA; SC.sai.start({from:a[0],to:a[1],rate:1.5,onend:()=>{ if(state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); } }}); }   // mèo bối rối → buồn (~2.8s) → quay lại gõ chậm
 }
 
 /* ========================= ĐĂNG NHẬP ========================= */
@@ -270,7 +279,7 @@ function setBusy(on){
 }
 $('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault(); if(state.flying||state.burst) return;
-  const classId=$('#classId').value.trim(), pin=$('#pin').value.trim();
+  const classId=$('#classId').value.trim().toUpperCase(), pin=$('#pin').value.trim();
   $('#errMsg').textContent='';
   let bad=false;
   if(!classId){flag('#classId');bad=true}
@@ -332,7 +341,7 @@ function release(){
     fxRun=false; bolts=[]; rings=[]; ctx.clearRect(0,0,cv.width,cv.height);
     if(S) for(const k in S) S[k].pause();
     lb.getAnimations().forEach(a=>a.cancel()); lb.classList.remove('show'); lb.style.animation='';
-    $('#stage').classList.remove('win'); $('#stHint').classList.remove('on');
+    $('#stage').classList.remove('win'); $('#stHint').classList.remove('on'); sbStop();
     state.burst=false;
   },1800);
 }
@@ -340,6 +349,129 @@ lb.addEventListener('pointerdown',e=>{e.preventDefault();press()});
 addEventListener('pointerup',release);
 addEventListener('pointercancel',()=>{pressed=false;lb.classList.remove('down')});
 lb.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();press();setTimeout(release,160)}});
+
+
+/* ========================= HIỆU NĂNG: tự giảm hiệu ứng nếu máy yếu =========================
+   Đo FPS thật; < 38 fps liên tục 4s → bật chế độ "lite" (bớt hạt, giảm độ phân giải, tắt vài hiệu ứng nền). */
+const PERF={lite:false};
+(function(){
+  let last=performance.now(),acc=0,n=0,bad=0;
+  (function f(t){
+    const d=t-last; last=t;
+    if(!document.hidden&&d<250){ acc+=d; n++; if(acc>=2000){ bad=(n/acc*1000<38)?bad+1:0; if(bad>=2&&!PERF.lite){ PERF.lite=true; document.documentElement.classList.add('lite'); GLI&&GLI.lite(); } acc=0;n=0; } }
+    requestAnimationFrame(f);
+  })(last);
+})();
+
+/* ========================= THREE.JS: SAO GỢN SÓNG DẢI MÀU · TRÁI TIM · MŨ CỬ NHÂN RƠI =========================
+   Một lớp WebGL trong suốt phía sau trang đăng nhập. Sao/tim vẽ bằng shader (viền gợn sóng, màu chạy theo thời gian),
+   mũ cử nhân là texture vẽ bằng canvas. Không có WebGL/three.js → bỏ qua, trang vẫn chạy bình thường. */
+const GLI=(function(){
+  if(typeof THREE==='undefined'||reduce) return null;
+  const cv=$('#bgGL'); let R; try{ R=new THREE.WebGLRenderer({canvas:cv,alpha:true,antialias:false,powerPreference:'low-power'}); }catch(e){ return null; }
+  R.setClearColor(0x000000,0);
+  const scene=new THREE.Scene(), cam=new THREE.PerspectiveCamera(50,1,.1,100); cam.position.z=14;
+  const VS='varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
+  const FS=`precision mediump float;varying vec2 vUv;uniform float uT,uSeed,uType;
+  vec3 hsv(float h,float s,float v){vec3 k=clamp(abs(mod(h*6.+vec3(0.,4.,2.),6.)-3.)-1.,0.,1.);return v*mix(vec3(1.),k,s);}
+  void main(){
+    vec2 p=(vUv-.5)*2.; float r=length(p), a=atan(p.y,p.x), al=0., rim=0.; vec3 col=vec3(1.);
+    if(uType<.5){ // sao gợn sóng
+      float R=(.40+.42*pow(.5+.5*cos(5.*a+uSeed),1.5))*(1.+.05*sin(uT*2.+a*10.));
+      float edge=R-r; al=smoothstep(0.,.05,edge); rim=smoothstep(.12,0.,edge)*al;
+      float rip=.5+.5*sin(r*20.-uT*3.+uSeed);
+      col=hsv(fract(a/6.2832+uT*.07+uSeed*.1),.42,.98)*(.86+.14*rip);
+      col=mix(col,vec3(1.),rim*.55+smoothstep(.34,0.,r)*.4);
+    } else { // trái tim
+      vec2 q=vec2(p.x*1.25,p.y*1.25+.12); float t3=q.x*q.x+q.y*q.y-1.; float f=t3*t3*t3-q.x*q.x*q.y*q.y*q.y;
+      al=smoothstep(.04,-.04,f); rim=smoothstep(-.05,.02,f)*al*0.;
+      float g=smoothstep(1.,-.6,p.y*.8+p.x*.35);
+      col=mix(vec3(1.,.55,.72),vec3(1.,.8,.88),g); float hi=smoothstep(.28,0.,length(p-vec2(-.3,.32))); col=mix(col,vec3(1.),hi*.7);
+      col*= .93+.07*sin(uT*3.+uSeed);
+    }
+    gl_FragColor=vec4(col,al*.92);
+  }`;
+  // mũ cử nhân (ảnh 3) vẽ bằng canvas
+  const capTex=(function(){ const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
+    g.fillStyle='#1e3a8a'; g.beginPath(); g.moveTo(64,22); g.lineTo(120,48); g.lineTo(64,74); g.lineTo(8,48); g.closePath(); g.fill();
+    g.fillStyle='#27439e'; g.beginPath(); g.moveTo(30,64); g.lineTo(30,92); g.quadraticCurveTo(64,112,98,92); g.lineTo(98,64); g.lineTo(64,80); g.closePath(); g.fill();
+    g.strokeStyle='#f5b942'; g.lineWidth=4; g.lineCap='round'; g.beginPath(); g.moveTo(112,52); g.lineTo(112,92); g.stroke();
+    g.fillStyle='#f5b942'; g.beginPath(); g.arc(112,96,5,0,7); g.fill();
+    const t=new THREE.CanvasTexture(c); return t; })();
+  const geo=new THREE.PlaneGeometry(1,1), items=[]; let W=10,H=13,lite=false,running=false,last=0,acc=0;
+  function make(type,i){
+    const mat=type===2?new THREE.MeshBasicMaterial({map:capTex,transparent:true,depthWrite:false})
+      :new THREE.ShaderMaterial({vertexShader:VS,fragmentShader:FS,transparent:true,depthWrite:false,uniforms:{uT:{value:0},uSeed:{value:Math.random()*6},uType:{value:type}}});
+    const m=new THREE.Mesh(geo,mat); scene.add(m);
+    const it={m,type,mat,vy:.55+Math.random()*.9,sw:.2+Math.random()*.5,ph:Math.random()*6,rs:(Math.random()-.5)*.8,sz:.8+Math.random()*.9,z:-3+Math.random()*5,x0:0};
+    items.push(it); place(it,true); return it;
+  }
+  function place(it,init){
+    const hw=Math.tan(25*Math.PI/180)*(cam.position.z-it.z)*cam.aspect, hh=Math.tan(25*Math.PI/180)*(cam.position.z-it.z);
+    it.x0=(Math.random()*2-1)*hw*.95; it.m.position.z=it.z;
+    it.m.position.y=init?(Math.random()*2-1)*hh:hh+it.sz; it.hh=hh; it.m.position.x=it.x0;
+    it.m.scale.set(it.sz*(innerWidth<600?1.15:1),it.sz*(innerWidth<600?1.15:1),1);
+  }
+  function build(){ items.splice(0).forEach(i=>{scene.remove(i.m);i.mat.dispose()});
+    const n=lite?9:(innerWidth<600?13:20); for(let i=0;i<n;i++) make(i%5===4?2:(i%2?1:0),i); }
+  function size(){ const dpr=Math.min(devicePixelRatio||1,lite?1:1.5); R.setPixelRatio(dpr); R.setSize(innerWidth,innerHeight,false); cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); items.forEach(i=>place(i,true)); }
+  function frame(t){
+    if(!running) return; requestAnimationFrame(frame);
+    if(lite&&t-last<33) return; const dt=Math.min((t-last)/1000||.016,.05); last=t; acc+=dt;
+    for(const it of items){
+      const m=it.m; m.position.y-=it.vy*dt; m.position.x=it.x0+Math.sin(acc*it.sw+it.ph)*.6; m.rotation.z+=it.rs*dt*(it.type===2?.5:1); m.rotation.y=Math.sin(acc*.9+it.ph)*.5;
+      if(it.type!==2) it.mat.uniforms.uT.value=acc; if(m.position.y<-it.hh-it.sz) place(it,false);
+    }
+    R.render(scene,cam);
+  }
+  const api={
+    start(){ if(running) return; running=true; last=performance.now(); requestAnimationFrame(frame); },
+    stop(){ running=false; },
+    lite(){ lite=true; build(); size(); }
+  };
+  build(); size(); addEventListener('resize',size);
+  const login=$('#login');
+  function sync(){ const on=login.classList.contains('active')&&!document.hidden&&!$('#stage').classList.contains('on'); on?api.start():api.stop(); }
+  new MutationObserver(sync).observe(login,{attributes:true,attributeFilter:['class']});
+  new MutationObserver(sync).observe($('#stage'),{attributes:true,attributeFilter:['class']});
+  document.addEventListener('visibilitychange',sync); sync();
+  return api;
+})();
+
+/* ========================= NỀN CẢNH BAY: vẽ thêm tia điện + hạt quanh clip =========================
+   Clip chỉ là 1 cột hẹp giữa màn hình (nhất là trên máy tính). Lớp này vẽ tia điện từ vòng sáng toả ra toàn màn hình,
+   hạt sáng bay lên và quầng sáng nhịp thở → clip hoà vào nền, không còn thấy khung video. */
+const SB={cv:$('#stageBg'),on:false,bolts:[],parts:[],next:0,last:0};
+SB.ctx=SB.cv.getContext('2d');
+function sbSize(){ const d=PERF.lite?1:Math.min(devicePixelRatio||1,1.5); SB.d=d; SB.cv.width=innerWidth*d; SB.cv.height=innerHeight*d; }
+function sbStart(){ if(SB.on) return; SB.on=true; sbSize(); SB.parts=Array.from({length:PERF.lite?18:42},()=>({x:Math.random(),y:Math.random(),v:.02+Math.random()*.05,r:.6+Math.random()*1.8,p:Math.random()*6})); SB.last=performance.now(); requestAnimationFrame(sbFrame); }
+function sbStop(){ SB.on=false; SB.ctx.clearRect(0,0,SB.cv.width,SB.cv.height); }
+addEventListener('resize',()=>{ if(SB.on) sbSize(); });
+function sbBolt(cx,cy,W,H){
+  let ang=Math.random()*Math.PI*2, x=cx, y=cy, len=Math.min(W,H)*(.35+Math.random()*.5), pts=[[x,y]], seg=16*SB.d;
+  for(let d=0;d<len;d+=seg){ ang+=(Math.random()-.5)*.8; x+=Math.cos(ang)*seg; y+=Math.sin(ang)*seg; pts.push([x,y]); }
+  return {pts,born:performance.now(),life:260+Math.random()*260};
+}
+function sbFrame(t){
+  if(!SB.on) return; requestAnimationFrame(sbFrame);
+  if(PERF.lite&&t-SB.last<48) return; SB.last=t;
+  const c=SB.ctx,W=SB.cv.width,H=SB.cv.height,d=SB.d, st=$('#stage').style;
+  const cx=(parseFloat(st.getPropertyValue('--rx'))||innerWidth/2)*d, cy=(parseFloat(st.getPropertyValue('--ry'))||innerHeight*.43)*d;
+  c.clearRect(0,0,W,H); c.globalCompositeOperation='lighter';
+  const pulse=.75+.25*Math.sin(t/520), R0=Math.min(W,H)*.34;
+  const g=c.createRadialGradient(cx,cy,R0*.2,cx,cy,R0*2.1); g.addColorStop(0,`rgba(70,140,255,${.34*pulse})`); g.addColorStop(.5,`rgba(40,90,220,${.12*pulse})`); g.addColorStop(1,'rgba(0,0,0,0)');
+  c.fillStyle=g; c.fillRect(0,0,W,H);
+  if(t>SB.next){ SB.bolts.push(sbBolt(cx,cy,W,H)); if(Math.random()<.5) SB.bolts.push(sbBolt(cx,cy,W,H)); SB.next=t+(PERF.lite?600:300)+Math.random()*350; }
+  c.lineCap='round'; c.lineJoin='round';
+  SB.bolts=SB.bolts.filter(b=>t-b.born<b.life);
+  for(const b of SB.bolts){ const f=1-(t-b.born)/b.life;
+    c.beginPath(); b.pts.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));
+    c.strokeStyle=`rgba(60,130,255,${.22*f})`; c.lineWidth=6*d; c.stroke();
+    c.strokeStyle=`rgba(200,232,255,${.8*f})`; c.lineWidth=1.6*d; c.stroke(); }
+  for(const p of SB.parts){ p.y-=p.v*(1/60); if(p.y<-.05){p.y=1.05;p.x=Math.random()} const a=.35+.35*Math.sin(t/400+p.p);
+    c.fillStyle=`rgba(150,205,255,${a})`; c.beginPath(); c.arc(p.x*W,p.y*H,p.r*d,0,7); c.fill(); }
+  c.globalCompositeOperation='source-over';
+}
 
 /* ========================= ĐIỂM DANH ========================= */
 let marks={}; // mssv -> 'bad' | 'warn'
@@ -429,7 +561,7 @@ $('#logoutBtn').addEventListener('click',()=>{
   if(vv){ vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit); }
   addEventListener('resize',fit);
   addEventListener('orientationchange',()=>{ base=0; setTimeout(fit,350); });
-  ['classId','pin'].forEach(id=>$('#'+id).addEventListener('focus',()=>setTimeout(()=>{ fit(); $('#'+id).scrollIntoView({block:'nearest'}); },320)));
+  ['classId','pin'].forEach(id=>$('#'+id).addEventListener('focus',()=>setTimeout(fit,320)));
   fit();
 })();
 </script>
