@@ -29,3 +29,9 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 - Three.js (cdnjs r128, tải trong Index.html): sao gợn sóng dải màu, trái tim, mũ cử nhân rơi. Tự tắt nếu thiếu WebGL; tự giảm khi máy yếu (<38fps → chế độ "lite").
 - Cảnh bay: vẽ thêm tia điện toả toàn màn hình + hạt sáng + quầng sáng; viền clip làm mờ để không thấy khung video; clip chỉ hiện khi khung đầu sẵn sàng (chuyển mượt, không nháy).
 - Sửa nhân đôi ký tự trên điện thoại: bỏ autocapitalize, không ghi đè giá trị ô khi đang gõ, đo vị trí có nhớ tạm.
+
+## Bản 4 (thêm)
+- Viền clip ở màn đăng nhập làm mờ cả 4 cạnh (đầu mèo/sách bị cắt trong clip gốc giờ tan vào nền thay vì lộ đường cắt).
+- Icon mũ cử nhân cố định góc trái trên; chỉ còn trái tim + sao 4 cánh gợn sóng rơi, chậm hơn nhiều.
+- DÁN mã lớp / PIN: từng ký tự rơi lần lượt vào ô (chữ to), mèo gõ nhanh trong lúc đó.
+- Sửa "Đổi lớp": nút "Đang xử lý…" không còn bị kẹt, đăng nhập lớp khác được ngay.

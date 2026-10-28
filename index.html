@@ -82,11 +82,11 @@ html.lite .sp{animation:none}
 /* --- cảnh mèo (video) --- */
 .scene{position:relative;width:100%;aspect-ratio:5/3;margin-bottom:-8px;pointer-events:none;z-index:2;
   mix-blend-mode:multiply;display:none;background:radial-gradient(ellipse 44% 6% at 50% 94%,#b8c8f066,transparent 72%);
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 4%);
-  -webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,#000 9%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 4%);mask-composite:intersect}
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent),linear-gradient(180deg,transparent,#000 13%,#000 86%,transparent);
+  -webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent),linear-gradient(180deg,transparent,#000 13%,#000 86%,transparent);mask-composite:intersect}
 [data-phase=login] .scene{display:block;animation:sceneIn .7s ease both}
 @keyframes sceneIn{from{opacity:0;transform:translateY(14px)}}
-.scene video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .3s;background:transparent;filter:brightness(1.045);transform:translateZ(0);will-change:opacity}
+.scene video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .3s;background:transparent;filter:brightness(1.05) contrast(1.05);transform:translateZ(0);will-change:opacity}
 .scene video.on{opacity:1}
 
 /* --- form --- */
@@ -195,6 +195,9 @@ html.kb .errmsg{margin-top:4px;min-height:0}
 
 
 html.lite #stage::before{animation:none}
+
+.capbadge{position:absolute;left:clamp(14px,3vw,44px);top:clamp(12px,2.8vh,30px);width:clamp(30px,3.2vw,50px);height:auto;z-index:3;color:#1e3a8a;pointer-events:none;filter:drop-shadow(0 4px 8px #1e3a8a33)}
+@media(max-width:560px){.capbadge{display:none}}
 /* ============ APP ============ */
 #app{background:#eef3ff;min-height:100dvh;padding-bottom:84px}
 .topbar{position:sticky;top:0;z-index:20;background:linear-gradient(135deg,#1e3a8a,#2549b3);color:#fff;padding:14px 16px;
@@ -267,6 +270,7 @@ select:focus,input[type=date]:focus,input[type=search]:focus{border-color:var(--
     <img data-a="logo.png" alt="SIU">
     <div><b>Điểm danh lớp học phần</b><small>Phòng Tuyển sinh &amp; Công tác Sinh viên – SIU</small></div>
   </div>
+  <svg class="capbadge" viewBox="0 0 64 56" aria-hidden="true"><path d="M32 3 62 18 32 33 2 18Z" fill="currentColor"/><path d="M14 27v13c8 8 28 8 36 0V27L32 36Z" fill="currentColor" opacity=".88"/><path d="M58 21v16" stroke="#f5b942" stroke-width="3" stroke-linecap="round"/><circle cx="58" cy="40" r="3" fill="#f5b942"/></svg>
   <div class="tagline" aria-hidden="true">Small steps<br>Big goals<i></i></div>
   <div class="login-wrap" id="loginWrap" data-phase="pick">
 
@@ -545,11 +549,37 @@ function goIdle(){ const L=SC.go; if(!L||!state.laid) return; L.v.playbackRate=I
 function onType(e){
   if(!state.dev) return;
   const inp=e.target, now=performance.now(); lastKey=now; keyTimes.push(now);
+  if(inp._pasted){ const t=inp._pasted; inp._pasted=null; pasteRain(t,inp); return; }
   ensureLay(); skipLay();
   if(e.data&&e.inputType&&e.inputType.startsWith('insert')) flyLetter(e.data.slice(-1),inp);
   if(state.laid){ goPlay(); clearTimeout(idleT); idleT=setTimeout(goIdle,450); }
 }
 let flyLast=0, flyLive=0;
+/* DÁN mã lớp / PIN: từng ký tự rơi lần lượt xuống ô nhập (chữ to), mèo gõ nhanh trong lúc đó */
+function simTyping(ms){ const t0=performance.now(); clearInterval(simTyping._t);
+  simTyping._t=setInterval(()=>{ const n=performance.now(); keyTimes.push(n); lastKey=n; if(state.laid) goPlay(); if(n-t0>ms){ clearInterval(simTyping._t); idleT=setTimeout(goIdle,450);} },70); }
+function pasteRain(text,inp){
+  text=String(text).slice(0,24); if(!text||reduce){return}
+  const r=cRect(inp), pw=inp.type==='password', fs=innerWidth<600?26:30, y0=r.top+r.height/2;
+  const ctxm=document.createElement('canvas').getContext('2d'); ctxm.font='600 '+fs*.62+'px system-ui'; let x=r.left+44;
+  [...text].forEach((ch,i)=>{
+    const w=Math.max(10,ctxm.measureText(ch).width+1), el=document.createElement('div');
+    el.style.cssText='position:fixed;left:0;top:0;z-index:60;font:800 '+fs+'px system-ui,sans-serif;color:#1e3a8a;pointer-events:none;will-change:transform,opacity;text-shadow:0 3px 10px #3b82f666';
+    el.textContent=pw?'•':ch; document.body.appendChild(el);
+    const tx=Math.min(x,r.right-30), fromY=y0-r.height-70-Math.random()*30;
+    el.animate([{transform:`translate(${tx}px,${fromY}px) scale(1.5) rotate(${(Math.random()-.5)*40}deg)`,opacity:0},
+      {transform:`translate(${tx}px,${fromY+30}px) scale(1.4)`,opacity:1,offset:.15},
+      {transform:`translate(${tx}px,${y0-fs*.6}px) scale(1)`,opacity:1,offset:.78},
+      {transform:`translate(${tx}px,${y0-fs*.8}px) scale(.9)`,opacity:0}],
+      {duration:720,delay:i*75,easing:'cubic-bezier(.3,.9,.4,1)',fill:'both'}).onfinish=()=>el.remove();
+    x+=w;
+  });
+  ensureLay(); skipLay(); simTyping(text.length*75+500);
+}
+['classId','pin'].forEach(id=>$('#'+id).addEventListener('paste',e=>{
+  let t=(e.clipboardData||window.clipboardData).getData('text')||''; t=id==='pin'?t.replace(/\D/g,'').slice(0,6):t.trim();
+  $('#'+id)._pasted=t;
+}));
 function flyLetter(ch,inp){
   if(reduce) return;
   const now=performance.now();
@@ -665,6 +695,7 @@ $('#loginForm').addEventListener('submit',async e=>{
   const res=await runFlight(loginP);
   if(!res||!res.ok){ backToLogin((res&&res.message)||'Đăng nhập không thành công.'); return; }
   session={classId,pin,...res};
+  setTimeout(()=>setBusy(false),1500);
 });
 
 /* ========================= NHẤN LOGO → TIA ĐIỆN → VÀO TRANG ========================= */
@@ -750,12 +781,12 @@ const GLI=(function(){
   vec3 hsv(float h,float s,float v){vec3 k=clamp(abs(mod(h*6.+vec3(0.,4.,2.),6.)-3.)-1.,0.,1.);return v*mix(vec3(1.),k,s);}
   void main(){
     vec2 p=(vUv-.5)*2.; float r=length(p), a=atan(p.y,p.x), al=0., rim=0.; vec3 col=vec3(1.);
-    if(uType<.5){ // sao gợn sóng
-      float R=(.40+.42*pow(.5+.5*cos(5.*a+uSeed),1.5))*(1.+.05*sin(uT*2.+a*10.));
-      float edge=R-r; al=smoothstep(0.,.05,edge); rim=smoothstep(.12,0.,edge)*al;
-      float rip=.5+.5*sin(r*20.-uT*3.+uSeed);
-      col=hsv(fract(a/6.2832+uT*.07+uSeed*.1),.42,.98)*(.86+.14*rip);
-      col=mix(col,vec3(1.),rim*.55+smoothstep(.34,0.,r)*.4);
+    if(uType<.5){ // ngôi sao 4 cánh ✦ gợn sóng dải màu
+      vec2 q=p/.9; float sd=pow(abs(q.x),.62)+pow(abs(q.y),.62); float edge=1.-sd;
+      al=smoothstep(-.02,.06,edge); rim=smoothstep(.2,0.,edge)*al;
+      float rip=.5+.5*sin(r*22.-uT*2.2+uSeed);
+      col=hsv(fract(a/6.2832+r*.5+uT*.05+uSeed*.1),.4,.99)*(.88+.12*rip);
+      col=mix(col,vec3(1.),rim*.5+smoothstep(.3,0.,r)*.5);
     } else { // trái tim
       vec2 q=vec2(p.x*1.25,p.y*1.25+.12); float t3=q.x*q.x+q.y*q.y-1.; float f=t3*t3*t3-q.x*q.x*q.y*q.y*q.y;
       al=smoothstep(.04,-.04,f); rim=smoothstep(-.05,.02,f)*al*0.;
@@ -777,7 +808,7 @@ const GLI=(function(){
     const mat=type===2?new THREE.MeshBasicMaterial({map:capTex,transparent:true,depthWrite:false})
       :new THREE.ShaderMaterial({vertexShader:VS,fragmentShader:FS,transparent:true,depthWrite:false,uniforms:{uT:{value:0},uSeed:{value:Math.random()*6},uType:{value:type}}});
     const m=new THREE.Mesh(geo,mat); scene.add(m);
-    const it={m,type,mat,vy:.55+Math.random()*.9,sw:.2+Math.random()*.5,ph:Math.random()*6,rs:(Math.random()-.5)*.8,sz:.8+Math.random()*.9,z:-3+Math.random()*5,x0:0};
+    const it={m,type,mat,vy:.2+Math.random()*.26,sw:.2+Math.random()*.5,ph:Math.random()*6,rs:(Math.random()-.5)*.8,sz:.8+Math.random()*.9,z:-3+Math.random()*5,x0:0};
     items.push(it); place(it,true); return it;
   }
   function place(it,init){
@@ -787,7 +818,7 @@ const GLI=(function(){
     it.m.scale.set(it.sz*(innerWidth<600?1.15:1),it.sz*(innerWidth<600?1.15:1),1);
   }
   function build(){ items.splice(0).forEach(i=>{scene.remove(i.m);i.mat.dispose()});
-    const n=lite?9:(innerWidth<600?13:20); for(let i=0;i<n;i++) make(i%5===4?2:(i%2?1:0),i); }
+    const n=lite?9:(innerWidth<600?13:20); for(let i=0;i<n;i++) make(i%2,i); }
   function size(){ const dpr=Math.min(devicePixelRatio||1,lite?1:1.5); R.setPixelRatio(dpr); R.setSize(innerWidth,innerHeight,false); cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); items.forEach(i=>place(i,true)); }
   function frame(t){
     if(!running) return; requestAnimationFrame(frame);
@@ -917,27 +948,16 @@ function closeCheer(){
 $('#cheer').addEventListener('click',closeCheer);
 $('#logoutBtn').addEventListener('click',()=>{
   if(!confirm('Đổi sang lớp khác?'))return;
-  session=null; $('#pin').value=''; $('#errMsg').textContent=''; show('#login');
-  if(SC.go){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); }
+  // đặt lại toàn bộ trạng thái để đăng nhập lớp khác (trước đây nút "Đang xử lý…" bị kẹt)
+  session=null; state.flying=false; state.ready=false; state.burst=false; cur=null;
+  setBusy(false); $('#pin').value=''; $('#classId').select&&0; $('#errMsg').textContent='';
+  $('#stage').classList.remove('on','win'); $('#stHint').classList.remove('on'); $('#skipBtn').classList.remove('on'); $('#stLoad').classList.remove('on');
+  const lb=$('#logoBtn'); lb.getAnimations().forEach(a=>a.cancel()); lb.classList.remove('show','down'); lb.style.animation='';
+  if(S) for(const k in S) S[k].pause(); sbStop();
+  show('#login');
+  if(SC.go&&state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); }
+  setTimeout(()=>$('#classId').focus(),300);
 });
-
-/* ========================= BÀN PHÍM ẢO (điện thoại) =========================
-   Khi bàn phím mở, vùng nhìn thấy (visualViewport) bị thu nhỏ: thu gọn trang đăng nhập để mèo + 2 ô nhập luôn nằm trên bàn phím. */
-(function(){
-  const vv=window.visualViewport, root=document.documentElement; let base=0;
-  function fit(){
-    const h=vv?vv.height:innerHeight; base=Math.max(base,h);
-    root.style.setProperty('--vvh',h+'px'); root.style.setProperty('--vvt',(vv?vv.offsetTop:0)+'px');
-    const kb=matchMedia('(pointer:coarse)').matches&&h<base*.78;
-    root.classList.toggle('kb',kb);
-    if(kb&&!vv) scrollTo(0,0);
-  }
-  if(vv){ vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit); }
-  addEventListener('resize',fit);
-  addEventListener('orientationchange',()=>{ base=0; setTimeout(fit,350); });
-  ['classId','pin'].forEach(id=>$('#'+id).addEventListener('focus',()=>setTimeout(fit,320)));
-  fit();
-})();
 </script>
 </body>
 </html>
