@@ -35,3 +35,9 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 - Icon mũ cử nhân cố định góc trái trên; chỉ còn trái tim + sao 4 cánh gợn sóng rơi, chậm hơn nhiều.
 - DÁN mã lớp / PIN: từng ký tự rơi lần lượt vào ô (chữ to), mèo gõ nhanh trong lúc đó.
 - Sửa "Đổi lớp": nút "Đang xử lý…" không còn bị kẹt, đăng nhập lớp khác được ngay.
+
+## Bản 5 – mèo sprite (không video) ở màn đăng nhập
+- Mèo ở màn đăng nhập giờ là các lớp ảnh ghép bằng code (60fps): thở, nghiêng đầu, chớp mắt, mắt nhìn theo ký tự đang gõ / con trỏ, tai giật, đuôi vẫy, tua mũ đung đưa, miệng nhép theo phím.
+- Mặt: gõ (miệng mở/cười), dán (ngạc nhiên + giật), sai PIN (buồn + lắc đầu), gửi xong (mắt cười + nhảy). Cảnh bay + logo vẫn dùng video.
+- Upload thêm thư mục `assets/rig/img/` (30 file .webp) lên repo, cùng chỗ với `video/`.
+- Chưa có: tay gõ, laptop, điện thoại (chờ lớp ảnh sửa). Tai/đuôi/mũ đang dùng lớp tạm, sẽ thay khi có bản sửa (chỉ cần ghi đè file cùng tên).

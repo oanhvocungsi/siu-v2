@@ -51,6 +51,247 @@ let session=null;
    Mỗi clip = 1 thẻ <video> xếp chồng, chuyển clip bằng làm mờ chéo.
    play({from, rate, onend}) · pause() · skip() · loop=[giây bắt đầu, giây kết thúc] cho clip lặp.
    Nếu trình duyệt chặn phát (tiết kiệm pin...), tự chuyển tiếp bằng đồng hồ để luồng không bị kẹt. */
+/* Mèo mascot – code-driven sprite rig (DOM layers + transforms, 60fps, no video).
+   Logical space 1024x1024 (layers are the 2048 art halved). */
+(function (G) {
+  'use strict';
+  var S = 1024;
+  // pivots in logical px (2048 pivots / 2)
+  var PV = { neck: [478, 650], earL: [260, 500], earR: [713, 475], tail: [790, 645],
+             tassel: [725, 170], bodyBase: [512, 900] };
+
+  function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function Spring(k, c) { this.x = 0; this.v = 0; this.t = 0; this.k = k; this.c = c; }
+  Spring.prototype.step = function (dt) {
+    var n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n;
+    for (var i = 0; i < n; i++) { this.v += (-this.k * (this.x - this.t) - this.c * this.v) * h; this.x += this.v * h; }
+    return this.x;
+  };
+
+  function Rig(host, opt) {
+    opt = opt || {};
+    this.base = opt.base || 'img/';
+    this.host = host;
+    this.L = {};            // name -> img
+    this.G = {};            // groups
+    this.look = { x: 0, y: 0 };
+    this.lookS = { x: new Spring(120, 18), y: new Spring(120, 18) };
+    this.head = { r: new Spring(110, 12), x: new Spring(140, 16), y: new Spring(140, 16) };
+    this.tassel = new Spring(70, 5);
+    this.earL = new Spring(260, 16); this.earR = new Spring(260, 16);
+    this.bump = new Spring(220, 14);            // body squash on type
+    this.face = { eyes: 'open', mouth: 'smile', brow: false };
+    this.blinkT = 0; this.nextBlink = 1.5; this.blinkDur = 0;
+    this.nextEar = 3; this.earWho = 0;
+    this.faceHold = 0; this.faceBase = 'idle';
+    this.t = 0; this.last = 0; this.running = false;
+    this.energy = 0;                             // typing energy 0..1
+    this.ready = false;
+  }
+
+  Rig.prototype.load = function () {
+    var me = this;
+    return Promise.resolve(Rig.ATLAS ? Rig.ATLAS : fetch(this.base + '../atlas.json').then(function (r) { return r.json(); })).then(function (man) {
+      me.man = man; me.build();
+      var imgs = Object.keys(me.L).map(function (k) { return me.L[k]; });
+      return Promise.all(imgs.map(function (i) { return i.decode ? i.decode().catch(function () {}) : 0; }));
+    }).then(function () { me.ready = true; me.setFace('idle'); return me; });
+  };
+
+  Rig.prototype.layer = function (name, parent) {
+    var m = this.man[name]; if (!m) return null;
+    var i = new Image(); i.src = this.base + name + '.webp'; i.decoding = 'async'; i.alt = ''; i.draggable = false;
+    i.className = 'rl'; i.style.cssText = 'left:' + m[0] + 'px;top:' + m[1] + 'px;width:' + m[2] + 'px;height:' + m[3] + 'px';
+    parent.appendChild(i); this.L[name] = i; return i;
+  };
+  Rig.prototype.group = function (name, parent, pv) {
+    var g = el('div', 'rg'); if (pv) g.style.transformOrigin = pv[0] + 'px ' + pv[1] + 'px';
+    parent.appendChild(g); this.G[name] = g; return g;
+  };
+
+  Rig.prototype.build = function () {
+    var h = this.host; h.innerHTML = '';
+    var stage = el('div', 'rig-stage'); h.appendChild(stage); this.stage = stage;
+    var root = this.group('root', stage, PV.bodyBase);
+    var me = this, add = function (n, p) { return me.layer(n, p); };
+    var fl = this.group('flowers', root);
+    fl.style.cssText += ';-webkit-mask-image:radial-gradient(ellipse 50% 47% at 50% 53%,#000 66%,transparent 100%);mask-image:radial-gradient(ellipse 50% 47% at 50% 53%,#000 66%,transparent 100%)';
+    add('flower_far', fl); add('flower_mid', fl); add('backpack', root); add('books', root);
+    var tail = this.group('tail', root, PV.tail); add('tail', tail);
+    add('body', root);
+    var head = this.group('head', root, PV.neck);
+    var eL = this.group('earL', head, PV.earL); add('ear_l_back', eL);
+    var eR = this.group('earR', head, PV.earR); add('ear_r_back', eR);
+    add('head', head); add('cheek', head); add('nose', head);
+    ['l', 'r'].forEach(function (s) {
+      add('eye_white_' + s, head);
+      var w = me.group('irisw_' + s, head), m = me.man['eye_white_' + s];
+      var u = 'url(' + (Rig.MASKS ? Rig.MASKS[s] : me.base + 'eye_mask_' + s + '.webp') + ')';
+      w.style.cssText += ';-webkit-mask-image:' + u + ';mask-image:' + u + ';-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:' + m[0] + 'px ' + m[1] + 'px;mask-position:' + m[0] + 'px ' + m[1] + 'px;-webkit-mask-size:' + m[2] + 'px ' + m[3] + 'px;mask-size:' + m[2] + 'px ' + m[3] + 'px';
+      var ir = me.group('iris_' + s, w); add('iris_' + s, ir); add('eye_highlight_' + s, ir);
+    });
+    add('eyelid_l', head); add('eyelid_r', head); add('eyes_smile', head); add('eyes_sad', head);
+    ['smile', 'open', 'sad', 'neutral'].forEach(function (m) { add('mouth_' + m, head); });
+    add('brow_worry', head); add('hat', head);
+    var ts = this.group('tassel', head, PV.tassel); add('tassel', ts);
+    add('paw_l_rest', root); add('paw_r_rest', root);
+    var cs = ['eyelid_l', 'eyelid_r', 'eyes_smile', 'eyes_sad', 'mouth_smile', 'mouth_open', 'mouth_sad', 'mouth_neutral', 'brow_worry'];
+    cs.forEach(function (n) { if (me.L[n]) me.L[n].style.opacity = 0; });
+  };
+
+  /* ---------- face ---------- */
+  Rig.prototype.applyFace = function () {
+    var f = this.face, L = this.L, G = this.G, blink = this.blinkDur > 0 && f.eyes === 'open';
+    var open = f.eyes === 'open' && !blink;
+    function vis(n, on) { var o = L[n] || G[n]; if (o) (o.style || o).opacity = on ? 1 : 0; }
+    ['l', 'r'].forEach(function (s) {
+      vis('eye_white_' + s, open); vis('irisw_' + s, open);
+      vis('eyelid_' + s, blink);
+    });
+    vis('eyes_smile', f.eyes === 'smile'); vis('eyes_sad', f.eyes === 'sad'); vis('brow_worry', f.brow);
+    ['smile', 'open', 'sad', 'neutral'].forEach(function (m) { vis('mouth_' + m, f.mouth === m); });
+    if (this.G.iris_l) { /* iris groups handled in frame */ }
+  };
+  var FACES = {
+    idle: { eyes: 'open', mouth: 'smile', brow: false },
+    type: { eyes: 'open', mouth: 'open', brow: false },
+    think: { eyes: 'open', mouth: 'neutral', brow: false },
+    happy: { eyes: 'smile', mouth: 'open', brow: false },
+    sad: { eyes: 'sad', mouth: 'sad', brow: true },
+    wow: { eyes: 'open', mouth: 'open', brow: false }
+  };
+  Rig.prototype.setFace = function (name, holdSec) {
+    var f = FACES[name] || FACES.idle; this.face = { eyes: f.eyes, mouth: f.mouth, brow: f.brow };
+    this.faceName = name; this.faceHold = holdSec || 0; this.applyFace();
+  };
+
+  /* ---------- public events ---------- */
+  // nx,ny in -1..1 (where the cat should look). null => look at camera
+  Rig.prototype.lookAt = function (nx, ny) { this.look.x = clamp(nx, -1, 1); this.look.y = clamp(ny, -1, 1); };
+  Rig.prototype.onType = function (nx, ny) {
+    if (nx != null) this.lookAt(nx, ny == null ? 0.5 : ny);
+    this.energy = Math.min(1, this.energy + 0.35);
+    this.bump.v += 90; this.head.y.v += 30;
+    this.faceBeat = 0.11;
+    if (this.faceName !== 'type') this.setFace('type', 0.35);
+    else this.faceHold = 0.35;
+    // alternate mouth shape per key for lip-sync feel
+    this.flip = !this.flip;
+  };
+  Rig.prototype.onPaste = function () {
+    this.head.y.v -= 380; this.bump.v += 260; this.head.r.v += (Math.random() < .5 ? -1 : 1) * 260;
+    this.setFace('wow', 1.0); this.lookAt(0, 0.6);
+  };
+  Rig.prototype.onError = function () {
+    this.setFace('sad', 2.4); this.head.r.v += 420; this.head.x.v += (Math.random() < .5 ? -1 : 1) * 900;
+    this.lookAt(0, 0.2);
+  };
+  Rig.prototype.onSuccess = function () {
+    this.setFace('happy', 3); this.head.y.v -= 520; this.bump.v += 380; this.tassel.v += 500; this.lookAt(0, 0);
+  };
+  Rig.prototype.blink = function () { this.blinkDur = 0.13; this.applyFace(); };
+
+  /* ---------- frame ---------- */
+  Rig.prototype.start = function () {
+    if (this.running) return; this.running = true; var me = this; this.last = performance.now();
+    function f(now) {
+      if (!me.running) return;
+      var dt = Math.min(0.05, (now - me.last) / 1000); me.last = now; me.frame(dt); requestAnimationFrame(f);
+    }
+    requestAnimationFrame(f);
+  };
+  Rig.prototype.stop = function () { this.running = false; };
+
+  Rig.prototype.frame = function (dt) {
+    if (!this.ready) return;
+    this.t += dt; var t = this.t, G = this.G, d = Math.PI / 180;
+    this.energy = Math.max(0, this.energy - dt * 1.6);
+    // hold timer back to idle face
+    if (this.faceHold > 0) { this.faceHold -= dt; if (this.faceHold <= 0) { this.setFace(this.energy > .05 ? 'type' : 'idle'); } }
+    // lip-sync flicker while typing
+    if (this.faceName === 'type') {
+      this.faceBeat = (this.faceBeat || 0) - dt;
+      var m = (this.flip ? 'open' : 'smile');
+      if (this.face.mouth !== m) { this.face.mouth = m; this.applyFace(); }
+    }
+    // blink scheduling
+    if (this.blinkDur > 0) { this.blinkDur -= dt; if (this.blinkDur <= 0) this.applyFace(); }
+    this.nextBlink -= dt;
+    if (this.nextBlink <= 0 && this.face.eyes === 'open' && this.energy < .05) {
+      this.blink(); this.nextBlink = Math.random() < .2 ? .22 : 2.2 + Math.random() * 3;
+    }
+    // ear twitch
+    this.nextEar -= dt;
+    if (this.nextEar <= 0) { (Math.random() < .5 ? this.earL : this.earR).v += (Math.random() < .5 ? -1 : 1) * 520; this.nextEar = 2.5 + Math.random() * 4; }
+    this.earL.t = Math.sin(t * .7) * 1.2; this.earR.t = Math.sin(t * .7 + 1) * 1.2;
+    // eyes
+    var lx = this.look.x, ly = this.look.y;
+    this.lookS.x.t = lx; this.lookS.y.t = ly;
+    var ex = this.lookS.x.step(dt), ey = this.lookS.y.step(dt);
+    var ix = clamp(ex, -1.2, 1.2) * 8, iy = clamp(ey, -1.2, 1.2) * 4;
+    if (G.iris_l) { G.iris_l.style.transform = 'translate(' + ix.toFixed(2) + 'px,' + iy.toFixed(2) + 'px)'; }
+    if (G.iris_r) { G.iris_r.style.transform = 'translate(' + ix.toFixed(2) + 'px,' + iy.toFixed(2) + 'px)'; }
+    // head
+    var idleSway = Math.sin(t * .55) * 1.1;
+    this.head.r.t = ex * 5 + idleSway + (this.energy > 0 ? Math.sin(t * 11) * this.energy * 1.1 : 0);
+    this.head.x.t = ex * 7; this.head.y.t = ey * 4;
+    var hr = this.head.r.step(dt), hx = this.head.x.step(dt), hy = this.head.y.step(dt);
+    var br = Math.sin(t * 1.9), bs = 1 + br * .011 + this.bump.step(dt) * .00035;
+    G.root.style.transform = 'scale(' + (1 + (bs - 1) * .5).toFixed(4) + ',' + bs.toFixed(4) + ')';
+    G.head.style.transform = 'translate(' + hx.toFixed(2) + 'px,' + (hy + br * -2.5).toFixed(2) + 'px) rotate(' + hr.toFixed(2) + 'deg)';
+    // tail
+    G.tail.style.transform = 'rotate(' + (Math.sin(t * 1.1) * 4 + Math.sin(t * 2.3) * 1.5).toFixed(2) + 'deg)';
+    // ears
+    G.earL.style.transform = 'rotate(' + this.earL.step(dt).toFixed(2) + 'deg)';
+    G.earR.style.transform = 'rotate(' + this.earR.step(dt).toFixed(2) + 'deg)';
+    // tassel pendulum: lags head rotation / motion
+    this.tassel.t = -hr * 1.6 - hx * 0.6 + Math.sin(t * 1.3) * 2;
+    G.tassel.style.transform = 'rotate(' + this.tassel.step(dt).toFixed(2) + 'deg)';
+  };
+
+  /* map a viewport point to a look vector relative to the cat's head */
+  Rig.prototype.lookClient = function (cx, cy) {
+    var r = this.host.getBoundingClientRect(), sc = r.width / S;
+    var hx = r.left + (478 + 0) * sc, hy = r.top + 520 * sc;
+    this.lookAt((cx - hx) / (r.width * .6), (cy - hy) / (r.height * .6));
+  };
+
+  Rig.CSS = '.rig-stage{position:relative;width:1024px;height:1024px;transform-origin:0 0}' +
+    '.rg{position:absolute;left:0;top:0;width:1024px;height:1024px;will-change:transform}' +
+    '.rl{position:absolute;max-width:none;user-select:none;-webkit-user-drag:none;pointer-events:none}';
+  var st = document.createElement('style'); st.textContent = Rig.CSS; document.head.appendChild(st);
+
+  /* fit stage to host width (host: square box) */
+  Rig.prototype.view = function () {   // vùng nhìn: cắt bớt phần trống phía trên mũ
+    var m = this.man, top = Math.max(0, (m.hat ? m.hat[1] : 60) - 36), bot = 1024;
+    return [top, bot - top];
+  };
+  Rig.prototype.fit = function () {
+    var w = this.host.clientWidth; if (!w) return; var v = this.view(), sc = w / S;
+    this.stage.style.transform = 'translate(0,' + (-v[0] * sc).toFixed(1) + 'px) scale(' + sc.toFixed(4) + ')';
+  };
+  Rig.prototype.destroy = function () { this.running = false; if (this.ro) this.ro.disconnect(); this.host.innerHTML = ''; };
+
+  G.CatRig = Rig;
+})(window);
+
+CatRig.ATLAS={"flower_far":[0,0,1024,1024],"flower_mid":[28,46,969,942],"backpack":[110,500,340,230],"books":[81,700,878,324],"tail":[725,518,229,231],"body":[200,525,650,300],"ear_l_back":[178,200,182,350],"ear_r_back":[650,169,131,226],"head":[240,215,499,440],"cheek":[295,537,363,68],"nose":[440,530,90,40],"eye_white_l":[298,432,140,131],"eye_white_r":[503,426,140,135],"iris_l":[341,446,86,94],"iris_r":[539,430,87,96],"eye_highlight_l":[363,468,48,56],"eye_highlight_r":[539,454,69,53],"eyelid_l":[293,427,150,145],"eyelid_r":[498,421,150,145],"eyes_smile":[331,478,280,24],"eyes_sad":[298,426,345,138],"mouth_smile":[454,576,48,8],"mouth_open":[440,550,82,45],"mouth_sad":[456,580,44,9],"mouth_neutral":[465,581,28,3],"brow_worry":[349,448,248,16],"hat":[175,83,563,215],"tassel":[710,160,75,235],"paw_l_rest":[340,715,135,82],"paw_r_rest":[475,715,135,90],"eye_mask_l":[298,432,140,131],"eye_mask_r":[503,426,140,135]};
+CatRig.MASKS={l:'data:image/webp;base64,UklGRgoBAABXRUJQVlA4TP0AAAAvi4AgEA8w//M///Mf8IBba2/d5ufxq+QIHIWreBNyNI3CEVj6wSMUBPDjOF2qiP5PAP5yl724piKupV08omfHMJrjZUiylnWxxM5GdxRjOJoxHWK8PEk7PQ9NvFnprqIcrqoMV1OmS5SXL23Ld9nEn4M6UQAcRAUwiBY0CQHwYhKwmEvMyTxihM0hnSohB1VDBtVCJiU/8uLS/7zJ4TcG1UIOqoZ0qoSAyjEn84hZzCXmxSRgMgAG0YIOogLoRAEAIkct32V7SQFOI22zAegG9vEAgJfSlCf2rlTFXFvxzS37+vbwYUvEEhGQU6QxQ6QwXSQzELlQp4BejftpAA==',r:'data:image/webp;base64,UklGRgwBAABXRUJQVlA4TP8AAAAvi4AhEA8w//M///Mf8IBba2/d5ufxq2SZkqNwNHI0jcIRWPrBIxQEfuDYXaqI/k8AfrnLXqipCLW0CyN6JobRiKchyVrWxRI7G50oxiCaMQkxnkzSTuahCZuVThXloKoyqKZMSpQnl7bFXTbhc1B3FACHowIYjhY0HQLg6UnA8lxiTs8jRrw5pLtKyOGqIcPVQqZLvuTpS//zpg/fMVwt5HDVkO4qIXDlmNPziFmeS8zTk4DpATAcLehwVADdUQDAkaOW1YB12Z4WAKRtGnVTh/FHHMaF6EYiYIA9lUY9lUpNpVFDEaorjYJSuRXwDBhb47CJY22Jm9uF69uD+0EA'};
+
+const RIG_BASE=ASSET_BASE+'rig/img/';
+let RIG=null, lookT=0;
+function mountRig(host){          // mèo sprite chạy bằng code (không video)
+  const box=document.createElement('div'); box.className='rigbox'; host.appendChild(box);
+  const r=new CatRig(box,{base:RIG_BASE});
+  r.load().then(()=>{
+    const v=r.view(); host.style.setProperty('--ar',(1024/v[1]).toFixed(4)); host.style.aspectRatio='1024/'+v[1]; host.classList.add('rigm');
+    r.fit(); r.start();
+    if('ResizeObserver' in window){ r.ro=new ResizeObserver(()=>r.fit()); r.ro.observe(box); }
+  }).catch(e=>console.warn('rig',e));
+  return r;
+}
+function rigLook(x,y,hold){ if(!RIG) return; RIG.lookClient(x,y); clearTimeout(lookT); lookT=setTimeout(()=>RIG&&RIG.lookAt(0,.12),hold||2600); }
 const LAYERS=new Set();
 class Layer{
   constructor(host,name,o={}){
@@ -117,14 +358,13 @@ tiles.addEventListener('click',e=>{
   tiles.classList.add('chosen'); t.classList.add('sel');
   setTimeout(()=>chooseDevice(t.dataset.dev),450);
 });
-function resetScene(){ for(const k in SC) SC[k].destroy(); SC={}; $('#scene').innerHTML=''; }
+function resetScene(){ for(const k in SC) SC[k].destroy(); SC={}; if(RIG){RIG.destroy();RIG=null} const sc=$('#scene'); sc.innerHTML=''; sc.classList.remove('rigm'); sc.style.aspectRatio=''; }
 function chooseDevice(dev){
   const c=DEV[dev]; state.dev=dev; state.laid=false; state.laying=false; store.set('att_dev',dev);
   resetScene(); const host=$('#scene');
-  SC.ngoi=new Layer(host,'ngoi',{loop:[4.5,7.0]}); SC.lay=new Layer(host,c.lay); SC.go=new Layer(host,c.go,{loop:c.loop}); SC.sai=new Layer(host,c.sai);
+  RIG=mountRig(host); state.laid=true;
   $('#loginWrap').dataset.phase='login';
   setTimeout(warmStage,1200);                         // tải sẵn clip bay để lúc bấm Vào lớp không bị chờ
-  SC.ngoi.show(); SC.ngoi.play({from:3});          // mèo ngồi trên sách giữa hoa: ~1.5s tỉnh dậy rồi lặp thở/chớp mắt
 }
 $('#changeDev').addEventListener('click',()=>{
   resetScene(); state.dev=null; $('#errMsg').textContent='';
@@ -159,7 +399,8 @@ function skipLay(){           // người dùng gõ khi mèo chưa kịp lấy m
   if(c.layTo-v.currentTime>.75){ try{v.currentTime=c.layTo-.6}catch(e){} }
 }
 // mèo gõ nhanh/chậm theo tốc độ gõ của người dùng
-function goPlay(){
+function goPlay(){ return; /* rig tự xử lý */
+
   const now=performance.now(); keyTimes=keyTimes.filter(t=>now-t<1500);
   const cps=keyTimes.length/1.5, rate=Math.max(.85,Math.min(2.4,.75+cps*.3));
   const L=SC.go; if(!L) return;
@@ -167,19 +408,19 @@ function goPlay(){
   L.v.playbackRate=rate;
   if(L.v.paused) L.play({rate});
 }
-function goIdle(){ const L=SC.go; if(!L||!state.laid) return; L.v.playbackRate=IDLE_RATE; if(L.v.paused) L.play({rate:IDLE_RATE}); }
+function goIdle(){ return; const L=SC.go; if(!L||!state.laid) return; L.v.playbackRate=IDLE_RATE; if(L.v.paused) L.play({rate:IDLE_RATE}); }
 function onType(e){
   if(!state.dev) return;
   const inp=e.target, now=performance.now(); lastKey=now; keyTimes.push(now);
   if(inp._pasted){ const t=inp._pasted; inp._pasted=null; pasteRain(t,inp); return; }
-  ensureLay(); skipLay();
+  const cp=caretPoint(inp); if(RIG){ RIG.onType(); rigLook(cp[0],cp[1]); }
   if(e.data&&e.inputType&&e.inputType.startsWith('insert')) flyLetter(e.data.slice(-1),inp);
   if(state.laid){ goPlay(); clearTimeout(idleT); idleT=setTimeout(goIdle,450); }
 }
 let flyLast=0, flyLive=0;
 /* DÁN mã lớp / PIN: từng ký tự rơi lần lượt xuống ô nhập (chữ to), mèo gõ nhanh trong lúc đó */
 function simTyping(ms){ const t0=performance.now(); clearInterval(simTyping._t);
-  simTyping._t=setInterval(()=>{ const n=performance.now(); keyTimes.push(n); lastKey=n; if(state.laid) goPlay(); if(n-t0>ms){ clearInterval(simTyping._t); idleT=setTimeout(goIdle,450);} },70); }
+  simTyping._t=setInterval(()=>{ const n=performance.now(); keyTimes.push(n); lastKey=n; if(RIG) RIG.onType(); if(n-t0>ms){ clearInterval(simTyping._t); idleT=setTimeout(goIdle,450);} },70); }
 function pasteRain(text,inp){
   text=String(text).slice(0,24); if(!text||reduce){return}
   const r=cRect(inp), pw=inp.type==='password', fs=innerWidth<600?26:30, y0=r.top+r.height/2;
@@ -196,7 +437,7 @@ function pasteRain(text,inp){
       {duration:720,delay:i*75,easing:'cubic-bezier(.3,.9,.4,1)',fill:'both'}).onfinish=()=>el.remove();
     x+=w;
   });
-  ensureLay(); skipLay(); simTyping(text.length*75+500);
+  if(RIG){ RIG.onPaste(); const q=cRect(inp); rigLook(q.left+q.width/2,q.top+q.height/2,3200); } simTyping(text.length*75+500);
 }
 ['classId','pin'].forEach(id=>$('#'+id).addEventListener('paste',e=>{
   let t=(e.clipboardData||window.clipboardData).getData('text')||''; t=id==='pin'?t.replace(/\D/g,'').slice(0,6):t.trim();
@@ -207,7 +448,7 @@ function flyLetter(ch,inp){
   const now=performance.now();
   if(now-flyLast<85||flyLive>=5) return;           // gõ nhanh: bỏ bớt chữ bay để không dính thành một cục
   flyLast=now; flyLive++;
-  const r=cRect($('#scene')), s=DEV[state.dev].src;
+  const r=cRect($('#scene')), s=[.5,.66];
   const jx=(Math.random()-.5)*14;
   const sx=r.left+r.width*s[0]+jx, sy=r.top+r.height*s[1];
   const [px,py]=caretPoint(inp);
@@ -223,7 +464,7 @@ function flyLetter(ch,inp){
 ['classId','pin'].forEach(id=>{
   const i=$('#'+id);
   i.addEventListener('input',onType);
-  i.addEventListener('focus',ensureLay);
+  i.addEventListener('focus',()=>{ const q=cRect(i); rigLook(q.left+q.width/2,q.top+q.height/2,3500); });
 });
 $('#classId').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#pin').focus()}});
 // chỉ ghi lại giá trị khi thật sự có ký tự lạ — ghi đè mỗi lần gõ làm bàn phím điện thoại (Gboard) nhân đôi ký tự
@@ -295,6 +536,7 @@ function backToLogin(msg){
   setTimeout(()=>{ if(S) for(const k in S) S[k].pause(); },650);
   setBusy(false);
   $('#errMsg').textContent=msg; flag('#pin');
+  if(RIG){ RIG.start(); RIG.onError(); }
   if(SC.sai){ const a=DEV[state.dev].saiA; SC.sai.start({from:a[0],to:a[1],rate:1.5,onend:()=>{ if(state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); } }}); }   // mèo bối rối → buồn (~2.8s) → quay lại gõ chậm
 }
 
@@ -311,7 +553,7 @@ $('#loginForm').addEventListener('submit',async e=>{
   if(!classId){flag('#classId');bad=true}
   if(!/^\d{4,6}$/.test(pin)){flag('#pin');bad=true}
   if(bad){$('#errMsg').textContent='Vui lòng nhập mã lớp và mã PIN (4–6 số).';return}
-  setBusy(true); if(SC.go) SC.go.pause(); if(SC.lay&&state.laying){state.laying=false;state.laid=true;SC.lay.pause();}
+  setBusy(true); if(RIG) RIG.setFace('think'); if(SC.go) SC.go.pause(); if(SC.lay&&state.laying){state.laying=false;state.laid=true;SC.lay.pause();}
   if($('#remember').checked) store.set('att_class',classId); else store.del('att_class');
   const loginP=callGas('apiLogin',classId,pin).catch(()=>({ok:false,message:'Không kết nối được máy chủ. Thử lại sau.'}));
   const res=await runFlight(loginP);
@@ -559,13 +801,13 @@ $('#sendBtn').addEventListener('click',async()=>{
 /* ========================= GỬI XONG: MÈO ĂN MỪNG ========================= */
 function celebrate(msg){
   closeCheer(); const host=$('#cheerHost');
-  const L=new Layer(host,DEV[state.dev||'laptop'].win); celebrate.L=L; L.show();
   $('#cheerMsg').textContent=msg; $('#cheer').classList.add('on');
-  const a=DEV[state.dev||'laptop'].winA; L.play({from:a[0],to:a[1],rate:1.35,onend:()=>{ celebrate._t=setTimeout(closeCheer,900); }});
+  const R=mountRig(host); celebrate.R=R; const t0=setInterval(()=>{ if(R.ready){ clearInterval(t0); R.onSuccess(); } },60);
+  celebrate._t=setTimeout(closeCheer,3800);
 }
 function closeCheer(){
   clearTimeout(celebrate._t); $('#cheer').classList.remove('on');
-  if(celebrate.L){celebrate.L.destroy();celebrate.L=null}
+  if(celebrate.R){celebrate.R.destroy();celebrate.R=null} const h=$('#cheerHost'); h.classList.remove('rigm'); h.style.aspectRatio='';
 }
 $('#cheer').addEventListener('click',closeCheer);
 $('#logoutBtn').addEventListener('click',()=>{
@@ -577,6 +819,7 @@ $('#logoutBtn').addEventListener('click',()=>{
   const lb=$('#logoBtn'); lb.getAnimations().forEach(a=>a.cancel()); lb.classList.remove('show','down'); lb.style.animation='';
   if(S) for(const k in S) S[k].pause(); sbStop();
   show('#login');
+  if(RIG){ RIG.start(); RIG.setFace('idle'); }
   if(SC.go&&state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); }
   setTimeout(()=>$('#classId').focus(),300);
 });

@@ -189,6 +189,12 @@ html.lite #stage::before{animation:none}
 
 .capbadge{position:absolute;left:clamp(14px,3vw,44px);top:clamp(12px,2.8vh,30px);width:clamp(30px,3.2vw,50px);height:auto;z-index:3;color:#1e3a8a;pointer-events:none;filter:drop-shadow(0 4px 8px #1e3a8a33)}
 @media(max-width:560px){.capbadge{display:none}}
+
+/* --- mèo sprite (rig) --- */
+.rigbox{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.scene.rigm{mix-blend-mode:normal;width:min(86%,calc(54vh*var(--ar,1)));margin:0 auto -8px;background:none;-webkit-mask-image:none;mask-image:none}
+@media(min-width:900px){.scene.rigm{width:min(100%,calc(68vh*var(--ar,1)))}}
+#cheerHost.rigm{width:min(100%,calc(54vh*var(--ar,1)));margin:0 auto}
 /* ============ APP ============ */
 #app{background:#eef3ff;min-height:100dvh;padding-bottom:84px}
 .topbar{position:sticky;top:0;z-index:20;background:linear-gradient(135deg,#1e3a8a,#2549b3);color:#fff;padding:14px 16px;
