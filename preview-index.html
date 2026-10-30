@@ -344,10 +344,10 @@ select:focus,input[type=date]:focus,input[type=search]:focus{border-color:var(--
       <h2 id="clsName">—</h2>
       <div class="meta" id="clsMeta"></div>
 
-      <label class="l" for="session">Buổi</label>
+      <label class="l" for="session">Chọn buổi</label>
       <select id="session"></select>
 
-      <label class="l">Buổi này</label>
+      <label class="l">Trạng thái buổi</label>
       <div class="seg" id="seg">
         <button type="button" data-v="study" class="on">Có học</button>
         <button type="button" data-v="off">Giảng viên nghỉ</button>
@@ -480,7 +480,7 @@ let session=null;
       me.man = man; me.build();
       var imgs = Object.keys(me.L).map(function (k) { return me.L[k]; });
       return Promise.all(imgs.map(function (i) { return i.decode ? i.decode().catch(function () {}) : 0; }));
-    }).then(function () { me.ready = true; me.setFace('idle'); return me; });
+    }).then(function () { if (!(me.L.head && me.L.head.naturalWidth)) throw new Error('rig images missing'); me.ready = true; me.setFace('idle'); return me; });
   };
 
   Rig.prototype.layer = function (name, parent) {
@@ -702,7 +702,7 @@ function mountRig(host,dev){          // mèo sprite chạy bằng code (không 
     const v=r.view(); host.style.setProperty('--ar',(1024/v[1]).toFixed(4)); host.style.aspectRatio='1024/'+v[1]; host.classList.add('rigm');
     if(dev) r.setDevice(dev); r.fit(); r.start();
     if('ResizeObserver' in window){ r.ro=new ResizeObserver(()=>r.fit()); r.ro.observe(box); }
-  }).catch(e=>console.warn('rig',e));
+  }).catch(e=>{ console.warn('rig',e); box.innerHTML=''; const im=new Image(); im.src=purl('ngoi'); im.alt=''; im.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;mix-blend-mode:multiply'; box.appendChild(im); host.style.aspectRatio='5/3'; });
   return r;
 }
 function rigLook(x,y,hold){ if(!RIG) return; RIG.lookClient(x,y); clearTimeout(lookT); lookT=setTimeout(()=>RIG&&RIG.lookAt(0,.12),hold||2600); }
@@ -1193,7 +1193,7 @@ function updateSummary(){
   if(!session)return; const c=counts(), n=$('#session').value||1;
   $('#nOk').textContent=c.ok;$('#nBad').textContent=c.bad;$('#nWarn').textContent=c.warn;
   $('#sumTop').textContent=`Buổi ${n} · ${mode==='study'?'Có học':'Giảng viên nghỉ'}`;
-  $('#sumBot').textContent=mode==='study'?`Có mặt ${c.ok}/${c.total} · Vắng ${c.bad+c.warn}`:'Không điểm danh buổi này';
+  $('#sumBot').textContent=mode==='study'?`Có mặt ${c.ok}/${c.total} sinh viên · Vắng ${c.bad+c.warn}`:'Không điểm danh buổi này';
 }
 $('#clearAll').addEventListener('click',()=>{marks={};render();toast('Đã bỏ chọn – cả lớp có mặt')});
 $('#reportWrong').addEventListener('click',async()=>{

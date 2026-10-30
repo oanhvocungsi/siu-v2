@@ -47,3 +47,6 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 
 ## Bản 7
 - Thêm chế độ laptop (tay gõ trên nắp, đổi tay theo phím) và điện thoại (cầm máy, ngón cái bấm luân phiên). Upload lại toàn bộ assets/rig/img/.
+
+## Bản 8
+- Nếu chưa upload assets/rig/img thì hiện ảnh tĩnh thay vì để trống. Đổi nhãn "Chọn buổi" / "Trạng thái buổi" và "Có mặt x/y sinh viên".
