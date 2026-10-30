@@ -41,3 +41,6 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 - Mặt: gõ (miệng mở/cười), dán (ngạc nhiên + giật), sai PIN (buồn + lắc đầu), gửi xong (mắt cười + nhảy). Cảnh bay + logo vẫn dùng video.
 - Upload thêm thư mục `assets/rig/img/` (30 file .webp) lên repo, cùng chỗ với `video/`.
 - Chưa có: tay gõ, laptop, điện thoại (chờ lớp ảnh sửa). Tai/đuôi/mũ đang dùng lớp tạm, sẽ thay khi có bản sửa (chỉ cần ghi đè file cùng tên).
+
+## Bản 6
+- Thay tai, đuôi, mũ, tua bằng bản sửa (fix3), làm mịn viền. Ghi đè lại `assets/rig/img/` trên repo.
