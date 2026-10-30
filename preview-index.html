@@ -520,6 +520,13 @@ let session=null;
     add('brow_worry', head); add('hat', head);
     var ts = this.group('tassel', head, PV.tassel); add('tassel', ts);
     add('paw_l_rest', root); add('paw_r_rest', root);
+    var lap = this.group('lap', root, [512, 968]); lap.style.display = 'none';
+    add('laptop_lid_back', lap); add('paw_lid_b', lap); add('paw_lid_a', lap);
+    if (this.L.paw_lid_b) this.L.paw_lid_b.style.opacity = 0;
+    var ph = this.group('ph', root, [512, 1000]); ph.style.display = 'none'; ph.style.cssText += ';-webkit-mask-image:linear-gradient(180deg,#000 82%,transparent 99%);mask-image:linear-gradient(180deg,#000 82%,transparent 99%)';
+    add('phone_body', ph); add('phone_screen', ph); add('hand_phone_r', ph); add('hand_phone_l', ph);
+    add('thumb_tap_a', ph); add('thumb_tap_b', ph);
+    ['thumb_tap_a', 'thumb_tap_b'].forEach(function (n) { if (me.L[n]) me.L[n].style.opacity = 0; });
     var cs = ['eyelid_l', 'eyelid_r', 'eyes_smile', 'eyes_sad', 'mouth_smile', 'mouth_open', 'mouth_sad', 'mouth_neutral', 'brow_worry'];
     cs.forEach(function (n) { if (me.L[n]) me.L[n].style.opacity = 0; });
   };
@@ -550,6 +557,29 @@ let session=null;
     this.faceName = name; this.faceHold = holdSec || 0; this.applyFace();
   };
 
+  /* ---------- thiết bị ---------- */
+  Rig.LAP = { s: 0.5, dy: 0 };
+  Rig.prototype.setDevice = function (d) {
+    this.device = d; var lap = this.G.lap; if (!lap) return;
+    var on = d === 'laptop', ph = d === 'phone'; lap.style.display = on ? '' : 'none';
+    if (this.G.ph) { this.G.ph.style.display = ph ? '' : 'none'; this.G.ph.style.transform = 'translate(0,' + Rig.PH.dy + 'px) scale(' + Rig.PH.s + ')'; }
+    ['paw_l_rest', 'paw_r_rest'].forEach(function (n) { if (this.L[n]) this.L[n].style.display = (on || ph) ? 'none' : ''; }, this);
+    lap.style.transform = 'translate(0,' + Rig.LAP.dy + 'px) scale(' + Rig.LAP.s + ')';
+  };
+  Rig.PH = { s: 0.5, dy: -90 };
+  Rig.prototype.pawFlip = function () {
+    this.pawB = !this.pawB;
+    if (this.device === 'phone') {
+      var L = this.L, t = this.tapState = ((this.tapState || 0) % 2) + 1;
+      if (L.hand_phone_l) L.hand_phone_l.style.opacity = 0;
+      if (L.thumb_tap_a) L.thumb_tap_a.style.opacity = t === 1 ? 1 : 0;
+      if (L.thumb_tap_b) L.thumb_tap_b.style.opacity = t === 2 ? 1 : 0;
+      return;
+    }
+    if (this.L.paw_lid_a) this.L.paw_lid_a.style.opacity = this.pawB ? 0 : 1;
+    if (this.L.paw_lid_b) this.L.paw_lid_b.style.opacity = this.pawB ? 1 : 0;
+  };
+
   /* ---------- public events ---------- */
   // nx,ny in -1..1 (where the cat should look). null => look at camera
   Rig.prototype.lookAt = function (nx, ny) { this.look.x = clamp(nx, -1, 1); this.look.y = clamp(ny, -1, 1); };
@@ -561,7 +591,7 @@ let session=null;
     if (this.faceName !== 'type') this.setFace('type', 0.35);
     else this.faceHold = 0.35;
     // alternate mouth shape per key for lip-sync feel
-    this.flip = !this.flip;
+    this.flip = !this.flip; if (this.device === 'laptop' || this.device === 'phone') this.pawFlip();
   };
   Rig.prototype.onPaste = function () {
     this.head.y.v -= 380; this.bump.v += 260; this.head.r.v += (Math.random() < .5 ? -1 : 1) * 260;
@@ -660,17 +690,17 @@ let session=null;
   G.CatRig = Rig;
 })(window);
 
-CatRig.ATLAS={"flower_far":[0,0,1024,1024],"flower_mid":[28,46,969,942],"backpack":[110,500,340,230],"books":[81,700,878,324],"tail":[789,518,116,195],"body":[200,525,650,300],"ear_l_back":[193,239,129,238],"ear_r_back":[649,195,92,198],"head":[240,215,499,440],"cheek":[295,537,363,68],"nose":[440,530,90,40],"eye_white_l":[298,432,140,131],"eye_white_r":[503,426,140,135],"iris_l":[341,446,86,94],"iris_r":[539,430,87,96],"eye_highlight_l":[363,468,48,56],"eye_highlight_r":[539,454,69,53],"eyelid_l":[293,427,150,145],"eyelid_r":[498,421,150,145],"eyes_smile":[331,478,280,24],"eyes_sad":[298,426,345,138],"mouth_smile":[454,576,48,8],"mouth_open":[440,550,82,45],"mouth_sad":[456,580,44,9],"mouth_neutral":[465,581,28,3],"brow_worry":[349,448,248,16],"hat":[174,85,549,212],"tassel":[709,159,76,236],"paw_l_rest":[340,715,135,82],"paw_r_rest":[475,715,135,90],"eye_mask_l":[298,432,140,131],"eye_mask_r":[503,426,140,135]};
+CatRig.ATLAS={"flower_far":[0,0,1024,1024],"flower_mid":[28,46,969,942],"backpack":[110,500,340,230],"books":[81,700,878,324],"tail":[789,518,116,195],"body":[200,525,650,300],"ear_l_back":[193,239,129,238],"ear_r_back":[649,195,92,198],"head":[240,215,499,440],"cheek":[295,537,363,68],"nose":[440,530,90,40],"eye_white_l":[298,432,140,131],"eye_white_r":[503,426,140,135],"iris_l":[341,446,86,94],"iris_r":[539,430,87,96],"eye_highlight_l":[363,468,48,56],"eye_highlight_r":[539,454,69,53],"eyelid_l":[293,427,150,145],"eyelid_r":[498,421,150,145],"eyes_smile":[331,478,280,24],"eyes_sad":[298,426,345,138],"mouth_smile":[454,576,48,8],"mouth_open":[440,550,82,45],"mouth_sad":[456,580,44,9],"mouth_neutral":[465,581,28,3],"brow_worry":[349,448,248,16],"hat":[174,85,549,212],"tassel":[709,159,76,236],"paw_l_rest":[340,715,135,82],"paw_r_rest":[475,715,135,90],"eye_mask_l":[298,432,140,131],"eye_mask_r":[503,426,140,135],"laptop_lid_back":[71,168,882,795],"paw_lid_a":[216,169,591,141],"paw_lid_b":[216,156,591,141],"phone_body":[377,486,270,428],"phone_screen":[393,493,235,398],"hand_phone_l":[193,624,265,400],"hand_phone_r":[575,624,258,400],"thumb_tap_a":[189,614,312,403],"thumb_tap_b":[522,614,312,403]};
 CatRig.MASKS={l:'data:image/webp;base64,UklGRgoBAABXRUJQVlA4TP0AAAAvi4AgEA8w//M///Mf8IBba2/d5ufxq+QIHIWreBNyNI3CEVj6wSMUBPDjOF2qiP5PAP5yl724piKupV08omfHMJrjZUiylnWxxM5GdxRjOJoxHWK8PEk7PQ9NvFnprqIcrqoMV1OmS5SXL23Ld9nEn4M6UQAcRAUwiBY0CQHwYhKwmEvMyTxihM0hnSohB1VDBtVCJiU/8uLS/7zJ4TcG1UIOqoZ0qoSAyjEn84hZzCXmxSRgMgAG0YIOogLoRAEAIkct32V7SQFOI22zAegG9vEAgJfSlCf2rlTFXFvxzS37+vbwYUvEEhGQU6QxQ6QwXSQzELlQp4BejftpAA==',r:'data:image/webp;base64,UklGRgwBAABXRUJQVlA4TP8AAAAvi4AhEA8w//M///Mf8IBba2/d5ufxq2SZkqNwNHI0jcIRWPrBIxQEfuDYXaqI/k8AfrnLXqipCLW0CyN6JobRiKchyVrWxRI7G50oxiCaMQkxnkzSTuahCZuVThXloKoyqKZMSpQnl7bFXTbhc1B3FACHowIYjhY0HQLg6UnA8lxiTs8jRrw5pLtKyOGqIcPVQqZLvuTpS//zpg/fMVwt5HDVkO4qIXDlmNPziFmeS8zTk4DpATAcLehwVADdUQDAkaOW1YB12Z4WAKRtGnVTh/FHHMaF6EYiYIA9lUY9lUpNpVFDEaorjYJSuRXwDBhb47CJY22Jm9uF69uD+0EA'};
 
 const RIG_BASE=ASSET_BASE+'rig/img/';
 let RIG=null, lookT=0;
-function mountRig(host){          // mèo sprite chạy bằng code (không video)
+function mountRig(host,dev){          // mèo sprite chạy bằng code (không video)
   const box=document.createElement('div'); box.className='rigbox'; host.appendChild(box);
   const r=new CatRig(box,{base:RIG_BASE});
   r.load().then(()=>{
     const v=r.view(); host.style.setProperty('--ar',(1024/v[1]).toFixed(4)); host.style.aspectRatio='1024/'+v[1]; host.classList.add('rigm');
-    r.fit(); r.start();
+    if(dev) r.setDevice(dev); r.fit(); r.start();
     if('ResizeObserver' in window){ r.ro=new ResizeObserver(()=>r.fit()); r.ro.observe(box); }
   }).catch(e=>console.warn('rig',e));
   return r;
@@ -746,7 +776,7 @@ function resetScene(){ for(const k in SC) SC[k].destroy(); SC={}; if(RIG){RIG.de
 function chooseDevice(dev){
   const c=DEV[dev]; state.dev=dev; state.laid=false; state.laying=false; store.set('att_dev',dev);
   resetScene(); const host=$('#scene');
-  RIG=mountRig(host); state.laid=true;
+  RIG=mountRig(host,dev); state.laid=true;
   $('#loginWrap').dataset.phase='login';
   setTimeout(warmStage,1200);                         // tải sẵn clip bay để lúc bấm Vào lớp không bị chờ
 }
@@ -832,7 +862,7 @@ function flyLetter(ch,inp){
   const now=performance.now();
   if(now-flyLast<85||flyLive>=5) return;           // gõ nhanh: bỏ bớt chữ bay để không dính thành một cục
   flyLast=now; flyLive++;
-  const r=cRect($('#scene')), s=[.5,.66];
+  const r=cRect($('#scene')), s=state.dev==='laptop'?[.5,.58]:[.5,.66];
   const jx=(Math.random()-.5)*14;
   const sx=r.left+r.width*s[0]+jx, sy=r.top+r.height*s[1];
   const [px,py]=caretPoint(inp);

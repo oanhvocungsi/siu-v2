@@ -44,3 +44,6 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 
 ## Bản 6
 - Thay tai, đuôi, mũ, tua bằng bản sửa (fix3), làm mịn viền. Ghi đè lại `assets/rig/img/` trên repo.
+
+## Bản 7
+- Thêm chế độ laptop (tay gõ trên nắp, đổi tay theo phím) và điện thoại (cầm máy, ngón cái bấm luân phiên). Upload lại toàn bộ assets/rig/img/.
