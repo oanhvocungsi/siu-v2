@@ -50,3 +50,8 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 
 ## Bản 8
 - Nếu chưa upload assets/rig/img thì hiện ảnh tĩnh thay vì để trống. Đổi nhãn "Chọn buổi" / "Trạng thái buổi" và "Có mặt x/y sinh viên".
+
+## Bản 9 – nhiều tư thế
+- Chọn thiết bị: mèo nằm trên sách rồi nhún xuống, bật dậy sang tư thế ngồi gõ laptop / ngồi cầm điện thoại (tay gõ lên xuống theo phím, ngón cái bấm).
+- Upload lại TOÀN BỘ assets/rig/img/ (có thêm *_lap.webp và *_ph.webp).
+- Chưa có: cảnh mở cặp (chưa có lớp ảnh). Tư thế laptop dùng tạm mặt mở mắt/miệng (lớp mặt biểu cảm lap đang chờ sửa).
