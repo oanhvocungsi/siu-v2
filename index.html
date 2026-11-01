@@ -199,11 +199,10 @@ html.lite #stage::before{animation:none}
 .capbadge{position:absolute;left:clamp(14px,3vw,44px);top:clamp(12px,2.8vh,30px);width:clamp(30px,3.2vw,50px);height:auto;z-index:3;color:#1e3a8a;pointer-events:none;filter:drop-shadow(0 4px 8px #1e3a8a33)}
 @media(max-width:560px){.capbadge{display:none}}
 
-/* --- mèo sprite (rig) --- */
-.rigbox{position:absolute;inset:0;overflow:hidden;pointer-events:none}
-.scene.rigm{mix-blend-mode:normal;width:min(86%,calc(54vh*var(--ar,1)));margin:0 auto -8px;background:none;-webkit-mask-image:none;mask-image:none}
-@media(min-width:900px){.scene.rigm{width:min(100%,calc(68vh*var(--ar,1)))}}
-#cheerHost.rigm{width:min(100%,calc(54vh*var(--ar,1)));margin:0 auto}
+/* --- clip mèo laptop (nền trắng, trộn multiply) --- */
+.scene.clipm{width:min(90%,calc(54vh*1.0556));margin:0 auto -8px}
+@media(min-width:900px){.scene.clipm{width:min(100%,calc(66vh*1.0556))}}
+#cheerHost.clipm{width:min(100%,calc(52vh*1.0556));margin:0 auto}
 /* ============ APP ============ */
 #app{background:#eef3ff;min-height:100dvh;padding-bottom:84px}
 .topbar{position:sticky;top:0;z-index:20;background:linear-gradient(135deg,#1e3a8a,#2549b3);color:#fff;padding:14px 16px;
@@ -435,298 +434,6 @@ let session=null;
    Mỗi clip = 1 thẻ <video> xếp chồng, chuyển clip bằng làm mờ chéo.
    play({from, rate, onend}) · pause() · skip() · loop=[giây bắt đầu, giây kết thúc] cho clip lặp.
    Nếu trình duyệt chặn phát (tiết kiệm pin...), tự chuyển tiếp bằng đồng hồ để luồng không bị kẹt. */
-/* Mèo mascot – code-driven sprite rig (DOM layers + transforms, no video).
-   Nhiều tư thế (lay = nằm trên sách, lap = ngồi gõ laptop, ph = ngồi cầm điện thoại).
-   Không gian logic 1024x1024 (ảnh gốc 2048 chia đôi). */
-(function (G) {
-  'use strict';
-  var S = 1024;
-  var VIEW = [0, 70, 1024, 950];          // khung nhìn chung cho mọi tư thế → cảnh không nhảy khi đổi tư thế
-
-  var POSES = {
-    lay: { sfx: '', base: [512, 900], neck: [478, 650], earL: [260, 500], earR: [713, 475], tail: [790, 645], tassel: [725, 170],
-           back: ['backpack', 'books'], eyeMask: 'l', faceOK: true },
-    lap: { sfx: '_lap', base: [500, 860], neck: [332, 550], earL: [175, 460], earR: [495, 450], tail: [190, 700], tassel: [530, 280],
-           back: ['books', 'backpack'], faceOK: false },
-    ph:  { sfx: '_ph', base: [512, 900], neck: [500, 540], earL: [345, 410], earR: [655, 390], tail: [675, 660], tassel: [707, 280],
-           back: ['books', 'backpack'], faceOK: true }
-  };
-
-  function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
-  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-  function Spring(k, c) { this.x = 0; this.v = 0; this.t = 0; this.k = k; this.c = c; }
-  Spring.prototype.step = function (dt) {
-    var n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n;
-    for (var i = 0; i < n; i++) { this.v += (-this.k * (this.x - this.t) - this.c * this.v) * h; this.x += this.v * h; }
-    return this.x;
-  };
-
-  function Rig(host, opt) {
-    opt = opt || {};
-    this.base = opt.base || 'img/';
-    this.host = host;
-    this.P = {}; this.pose = null; this.L = {}; this.G = {}; this.PVc = POSES.lay;
-    this.look = { x: 0, y: 0 };
-    this.lookS = { x: new Spring(120, 18), y: new Spring(120, 18) };
-    this.head = { r: new Spring(110, 12), x: new Spring(140, 16), y: new Spring(140, 16) };
-    this.tassel = new Spring(70, 5);
-    this.earL = new Spring(260, 16); this.earR = new Spring(260, 16);
-    this.pawL = new Spring(420, 24); this.pawR = new Spring(420, 24);
-    this.bump = new Spring(220, 14);
-    this.pop = new Spring(170, 11); this.pop.x = 0; this.pop.t = 0;   // nảy khi đổi tư thế
-    this.face = { eyes: 'open', mouth: 'open', brow: false };
-    this.nextBlink = 1.5; this.blinkDur = 0; this.nextEar = 3;
-    this.faceHold = 0; this.faceName = 'idle';
-    this.t = 0; this.last = 0; this.running = false; this.energy = 0; this.ready = false;
-    this.timers = [];
-  }
-
-  /* ---------- tải & dựng ---------- */
-  Rig.prototype.load = function (dev) {
-    var me = this;
-    return Promise.resolve(Rig.ATLAS).then(function (man) {
-      me.man = man;
-      me.stage = el('div', 'rig-stage'); me.host.innerHTML = ''; me.host.appendChild(me.stage);
-      var fl = el('div', 'rg');                         // hoa nền dùng chung
-      fl.style.cssText += ';-webkit-mask-image:radial-gradient(ellipse 50% 47% at 50% 53%,#000 66%,transparent 100%);mask-image:radial-gradient(ellipse 50% 47% at 50% 53%,#000 66%,transparent 100%)';
-      me.stage.appendChild(fl); me.G.flowers = fl;
-      me.flowerImgs = ['flower_far', 'flower_mid'].map(function (n) { return me.mk(n, fl, null); });
-      me.buildPose('lay');
-      if (dev === 'laptop') me.buildPose('lap'); else if (dev === 'phone') me.buildPose('ph');
-      me.setPose('lay');
-      var imgs = [];
-      for (var k in me.P) for (var n in me.P[k].L) imgs.push(me.P[k].L[n]);
-      imgs = imgs.concat(me.flowerImgs);
-      return Promise.all(imgs.map(function (i) { return i && i.decode ? i.decode().catch(function () {}) : 0; }));
-    }).then(function () {
-      var h = me.P.lay.L.head; if (!(h && h.naturalWidth)) throw new Error('rig images missing');
-      me.ready = true; me.setFace('idle'); return me;
-    });
-  };
-
-  Rig.prototype.mk = function (file, parent, P, key) {
-    var m = this.man[file]; if (!m) return null;
-    var i = new Image(); i.src = this.base + file + '.webp'; i.decoding = 'async'; i.alt = ''; i.draggable = false;
-    i.className = 'rl'; i.style.cssText = 'left:' + m[0] + 'px;top:' + m[1] + 'px;width:' + m[2] + 'px;height:' + m[3] + 'px';
-    parent.appendChild(i); if (P) P.L[key || file] = i; return i;
-  };
-  Rig.prototype.grp = function (P, name, parent, pv) {
-    var g = el('div', 'rg'); if (pv) g.style.transformOrigin = pv[0] + 'px ' + pv[1] + 'px';
-    parent.appendChild(g); P.G[name] = g; return g;
-  };
-
-  Rig.prototype.buildPose = function (name) {
-    var C = POSES[name], sfx = C.sfx, me = this, P = { name: name, C: C, G: {}, L: {} };
-    var add = function (n, parent) { return me.mk(n + sfx, parent, P, n); };
-    var root = this.grp(P, 'root', this.stage, C.base); root.style.display = 'none'; P.cont = root;
-    C.back.forEach(function (n) { add(n, root); });
-    var tail = this.grp(P, 'tail', root, C.tail); add('tail', tail);
-    add('body', root);
-    var head = this.grp(P, 'head', root, C.neck);
-    var eL = this.grp(P, 'earL', head, C.earL); add('ear_l_back', eL);
-    var eR = this.grp(P, 'earR', head, C.earR); add('ear_r_back', eR);
-    add('head', head); add('cheek', head); add('nose', head);
-    ['l', 'r'].forEach(function (s) {
-      add('eye_white_' + s, head);
-      var w = me.grp(P, 'irisw_' + s, head), m = me.man['eye_white_' + s + sfx];
-      if (m && Rig.MASKS) {
-        var u = 'url(' + Rig.MASKS[s + sfx] + ')';
-        w.style.cssText += ';-webkit-mask-image:' + u + ';mask-image:' + u + ';-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:' + m[0] + 'px ' + m[1] + 'px;mask-position:' + m[0] + 'px ' + m[1] + 'px;-webkit-mask-size:' + m[2] + 'px ' + m[3] + 'px;mask-size:' + m[2] + 'px ' + m[3] + 'px';
-      }
-      var ir = me.grp(P, 'iris_' + s, w); add('iris_' + s, ir); add('eye_highlight_' + s, ir);
-    });
-    if (C.faceOK) { add('eyelid_l', head); add('eyelid_r', head); add('eyes_smile', head); add('eyes_sad', head); }
-    ['smile', 'open', 'sad', 'neutral'].forEach(function (m) { if (C.faceOK || m === 'open') add('mouth_' + m, head); });
-    if (C.faceOK) add('brow_worry', head);
-    add('hat', head);
-    var ts = this.grp(P, 'tassel', head, C.tassel); add('tassel', ts);
-    if (name === 'lay') { add('paw_l_rest', root); add('paw_r_rest', root); }
-    if (name === 'lap') {
-      add('laptop_base', root); add('laptop_lid', root);
-      this.grp(P, 'pawL', root, [P.C.neck[0] + 20, 700]); add('paw_l_a', P.G.pawL);
-      this.grp(P, 'pawR', root, [P.C.neck[0] + 200, 690]); add('paw_r_a', P.G.pawR);
-    }
-    if (name === 'ph') {
-      var ph = this.grp(P, 'phone', root, [455, 610]); add('phone_body', ph); add('phone_screen', ph);
-      this.grp(P, 'pawL', root, [380, 620]); add('paw_l_a', P.G.pawL);
-      this.grp(P, 'pawR', root, [550, 620]); add('paw_r_a', P.G.pawR);
-      add('thumb_a', root); add('thumb_b', root);
-      ['thumb_a', 'thumb_b'].forEach(function (n) { if (P.L[n]) P.L[n].style.opacity = 0; });
-    }
-    ['eyelid_l', 'eyelid_r', 'eyes_smile', 'eyes_sad', 'mouth_smile', 'mouth_open', 'mouth_sad', 'mouth_neutral', 'brow_worry'].forEach(function (n) { if (P.L[n]) P.L[n].style.opacity = 0; });
-    this.P[name] = P;
-  };
-
-  Rig.prototype.setPose = function (name) {
-    var P = this.P[name]; if (!P) return;
-    for (var k in this.P) this.P[k].cont.style.display = (k === name) ? '' : 'none';
-    this.pose = name; this.L = P.L; this.G = P.G; this.PVc = P.C;
-    if (this.ready) this.applyFace();
-  };
-
-  /* ---------- mặt ---------- */
-  Rig.prototype.applyFace = function () {
-    var f = this.face, L = this.L, G = this.G, ok = this.PVc.faceOK;
-    var blink = ok && this.blinkDur > 0 && f.eyes === 'open';
-    var eyes = ok ? f.eyes : 'open', mouth = ok ? f.mouth : 'open';
-    var open = eyes === 'open' && !blink;
-    function vis(n, on) { var o = L[n] || G[n]; if (o) o.style.opacity = on ? 1 : 0; }
-    ['l', 'r'].forEach(function (s) { vis('eye_white_' + s, open); vis('irisw_' + s, open); vis('eyelid_' + s, blink); });
-    vis('eyes_smile', eyes === 'smile'); vis('eyes_sad', eyes === 'sad'); vis('brow_worry', ok && f.brow);
-    ['smile', 'open', 'sad', 'neutral'].forEach(function (m) { vis('mouth_' + m, mouth === m); });
-  };
-  var FACES = {
-    idle: { eyes: 'open', mouth: 'open', brow: false },
-    type: { eyes: 'open', mouth: 'open', brow: false },
-    think: { eyes: 'open', mouth: 'neutral', brow: false },
-    happy: { eyes: 'smile', mouth: 'smile', brow: false },
-    sad: { eyes: 'sad', mouth: 'sad', brow: true },
-    wow: { eyes: 'open', mouth: 'open', brow: false }
-  };
-  Rig.prototype.setFace = function (name, holdSec) {
-    var f = FACES[name] || FACES.idle; this.face = { eyes: f.eyes, mouth: f.mouth, brow: f.brow };
-    this.faceName = name; this.faceHold = holdSec || 0; this.applyFace();
-  };
-
-  /* ---------- đổi tư thế: nằm trên sách → ngồi với thiết bị ---------- */
-  Rig.prototype.later = function (ms, fn) { var me = this, id = setTimeout(function () { if (me.running || me.ready) fn(); }, ms); this.timers.push(id); };
-  Rig.prototype.startPose = function (dev, delay) {
-    var to = dev === 'laptop' ? 'lap' : dev === 'phone' ? 'ph' : null, me = this;
-    if (!to || !this.P[to]) return;
-    this.later(delay == null ? 1100 : delay, function () {
-      // hạ người xuống (chuẩn bị) rồi bật dậy sang tư thế mới, thiết bị trượt vào
-      me.bump.v += 700; me.head.y.v += 300;
-      me.later(190, function () {
-        me.setPose(to); me.pop.x = -0.22; me.pop.v = 0; me.pop.t = 0;
-        me.head.y.v -= 380; me.tassel.v += 450; me.earL.v += 400; me.earR.v -= 400;
-        me.setFace('happy', 0.9);
-        me.slide = 1;                       // trượt thiết bị vào (xem frame)
-      });
-    });
-  };
-
-  /* ---------- sự kiện ---------- */
-  Rig.prototype.lookAt = function (nx, ny) { this.look.x = clamp(nx, -1, 1); this.look.y = clamp(ny, -1, 1); };
-  Rig.prototype.onType = function (nx, ny) {
-    if (nx != null) this.lookAt(nx, ny == null ? 0.5 : ny);
-    this.energy = Math.min(1, this.energy + 0.35);
-    this.bump.v += 90; this.head.y.v += 30;
-    if (this.faceName !== 'type') this.setFace('type', 0.35); else this.faceHold = 0.35;
-    this.flip = !this.flip;
-    var P = this.P[this.pose]; if (!P) return;
-    if (this.pose === 'lap') { (this.flip ? this.pawL : this.pawR).v -= 900; }
-    else if (this.pose === 'ph') {
-      var a = P.L.thumb_a, b = P.L.thumb_b, on = this.flip ? a : b, off = this.flip ? b : a;
-      if (on) on.style.opacity = 1; if (off) off.style.opacity = 0;
-      this.phoneBump = 1;
-      clearTimeout(this._tt); this._tt = setTimeout(function () { if (a) a.style.opacity = 0; if (b) b.style.opacity = 0; }, 130);
-    }
-  };
-  Rig.prototype.onPaste = function () {
-    this.head.y.v -= 380; this.bump.v += 260; this.head.r.v += (Math.random() < .5 ? -1 : 1) * 260;
-    this.setFace('wow', 1.0); this.lookAt(0, 0.6);
-  };
-  Rig.prototype.onError = function () {
-    this.setFace('sad', 2.4); this.head.r.v += 420; this.head.x.v += (Math.random() < .5 ? -1 : 1) * 900; this.lookAt(0, 0.2);
-  };
-  Rig.prototype.onSuccess = function () {
-    this.setFace('happy', 3); this.head.y.v -= 520; this.bump.v += 380; this.tassel.v += 500; this.lookAt(0, 0);
-  };
-  Rig.prototype.blink = function () { this.blinkDur = 0.13; this.applyFace(); };
-
-  /* ---------- vòng lặp ---------- */
-  Rig.prototype.start = function () {
-    if (this.running) return; this.running = true; var me = this; this.last = performance.now();
-    function f(now) { if (!me.running) return; var dt = Math.min(0.05, (now - me.last) / 1000); me.last = now; me.frame(dt); requestAnimationFrame(f); }
-    requestAnimationFrame(f);
-  };
-  Rig.prototype.stop = function () { this.running = false; };
-
-  Rig.prototype.frame = function (dt) {
-    if (!this.ready) return;
-    this.t += dt; var t = this.t, G = this.G, C = this.PVc, ok = C.faceOK;
-    this.energy = Math.max(0, this.energy - dt * 1.6);
-    if (this.faceHold > 0) { this.faceHold -= dt; if (this.faceHold <= 0) this.setFace(this.energy > .05 ? 'type' : 'idle'); }
-    if (this.faceName === 'type' && ok) {
-      var m = this.flip ? 'open' : 'smile';
-      if (this.face.mouth !== m) { this.face.mouth = m; this.applyFace(); }
-    }
-    if (this.blinkDur > 0) { this.blinkDur -= dt; if (this.blinkDur <= 0) this.applyFace(); }
-    this.nextBlink -= dt;
-    if (this.nextBlink <= 0 && ok && this.face.eyes === 'open' && this.energy < .05) { this.blink(); this.nextBlink = Math.random() < .2 ? .22 : 2.2 + Math.random() * 3; }
-    this.nextEar -= dt;
-    if (this.nextEar <= 0) { (Math.random() < .5 ? this.earL : this.earR).v += (Math.random() < .5 ? -1 : 1) * 520; this.nextEar = 2.5 + Math.random() * 4; }
-    this.earL.t = Math.sin(t * .7) * 1.2; this.earR.t = Math.sin(t * .7 + 1) * 1.2;
-    // mắt
-    this.lookS.x.t = this.look.x; this.lookS.y.t = this.look.y;
-    var ex = this.lookS.x.step(dt), ey = this.lookS.y.step(dt);
-    var ix = clamp(ex, -1.2, 1.2) * 8, iy = clamp(ey, -1.2, 1.2) * 4, tr = 'translate(' + ix.toFixed(2) + 'px,' + iy.toFixed(2) + 'px)';
-    if (G.iris_l) G.iris_l.style.transform = tr; if (G.iris_r) G.iris_r.style.transform = tr;
-    // đầu
-    this.head.r.t = ex * 5 + Math.sin(t * .55) * 1.1 + (this.energy > 0 ? Math.sin(t * 11) * this.energy * 1.1 : 0);
-    this.head.x.t = ex * 7; this.head.y.t = ey * 4;
-    var hr = this.head.r.step(dt), hx = this.head.x.step(dt), hy = this.head.y.step(dt);
-    var br = Math.sin(t * 1.9), pop = this.pop.step(dt), bs = 1 + br * .011 + this.bump.step(dt) * .00035;
-    G.root.style.transform = 'scale(' + (1 + pop * .6 + (bs - 1) * .5).toFixed(4) + ',' + (1 + pop + (bs - 1)).toFixed(4) + ')';
-    G.head.style.transform = 'translate(' + hx.toFixed(2) + 'px,' + (hy + br * -2.5).toFixed(2) + 'px) rotate(' + hr.toFixed(2) + 'deg)';
-    G.tail.style.transform = 'rotate(' + (Math.sin(t * 1.1) * 4 + Math.sin(t * 2.3) * 1.5).toFixed(2) + 'deg)';
-    G.earL.style.transform = 'rotate(' + this.earL.step(dt).toFixed(2) + 'deg)';
-    G.earR.style.transform = 'rotate(' + this.earR.step(dt).toFixed(2) + 'deg)';
-    this.tassel.t = -hr * 1.6 - hx * 0.6 + Math.sin(t * 1.3) * 2;
-    G.tassel.style.transform = 'rotate(' + this.tassel.step(dt).toFixed(2) + 'deg)';
-    // tay gõ / điện thoại
-    if (this.pose === 'lap') {
-      G.pawL.style.transform = 'translateY(' + Math.min(0, this.pawL.step(dt)).toFixed(1) + 'px)';
-      G.pawR.style.transform = 'translateY(' + Math.min(0, this.pawR.step(dt)).toFixed(1) + 'px)';
-    } else if (this.pose === 'ph') {
-      var pb = this.phoneBump ? 2.5 : 0; this.phoneBump = 0;
-      this.pawL.t = 0; this.pawR.t = 0;
-      var pl = this.pawL.step(dt), pr = this.pawR.step(dt);
-      G.phone.style.transform = 'translateY(' + (Math.sin(t * 1.9) * -1.5 + pb).toFixed(1) + 'px)';
-      G.pawL.style.transform = G.pawR.style.transform = 'translateY(' + (Math.sin(t * 1.9) * -1.5 + pb * .6).toFixed(1) + 'px)';
-    }
-  };
-
-  /* hướng nhìn từ toạ độ màn hình */
-  Rig.prototype.lookClient = function (cx, cy) {
-    var r = this.host.getBoundingClientRect(), sc = r.width / VIEW[2], n = this.PVc.neck;
-    var hx = r.left + (n[0] - VIEW[0]) * sc, hy = r.top + (n[1] - 110 - VIEW[1]) * sc;
-    this.lookAt((cx - hx) / (r.width * .6), (cy - hy) / (r.height * .6));
-  };
-
-  Rig.CSS = '.rig-stage{position:relative;width:1024px;height:1024px;transform-origin:0 0}' +
-    '.rg{position:absolute;left:0;top:0;width:1024px;height:1024px;will-change:transform}' +
-    '.rl{position:absolute;max-width:none;user-select:none;-webkit-user-drag:none;pointer-events:none}';
-  var st = document.createElement('style'); st.textContent = Rig.CSS; document.head.appendChild(st);
-
-  Rig.prototype.view = function () { return [VIEW[1], VIEW[3], VIEW[2]]; };   // [top, height, width]
-  Rig.prototype.fit = function () {
-    var w = this.host.clientWidth; if (!w) return; var sc = w / VIEW[2];
-    this.stage.style.transform = 'translate(' + (-VIEW[0] * sc).toFixed(1) + 'px,' + (-VIEW[1] * sc).toFixed(1) + 'px) scale(' + sc.toFixed(4) + ')';
-  };
-  Rig.prototype.destroy = function () { this.running = false; this.timers.forEach(clearTimeout); if (this.ro) this.ro.disconnect(); this.host.innerHTML = ''; };
-  Rig.prototype.setDevice = function (d) { this.startPose(d, 0); };   // tương thích bản cũ
-
-  G.CatRig = Rig;
-})(window);
-
-CatRig.ATLAS={"flower_far":[0,0,1024,1024],"flower_mid":[28,46,969,942],"backpack":[110,500,340,230],"books":[81,700,878,324],"tail":[789,518,116,195],"body":[200,525,650,300],"ear_l_back":[193,239,129,238],"ear_r_back":[649,195,92,198],"head":[240,215,499,440],"cheek":[295,537,363,68],"nose":[440,530,90,40],"eye_white_l":[298,432,140,131],"eye_white_r":[503,426,140,135],"iris_l":[341,446,86,94],"iris_r":[539,430,87,96],"eye_highlight_l":[363,468,48,56],"eye_highlight_r":[539,454,69,53],"eyelid_l":[293,427,150,145],"eyelid_r":[498,421,150,145],"eyes_smile":[331,478,280,24],"eyes_sad":[298,426,345,138],"mouth_smile":[454,576,48,8],"mouth_open":[440,550,82,45],"mouth_sad":[456,580,44,9],"mouth_neutral":[465,581,28,3],"brow_worry":[349,448,248,16],"hat":[174,85,549,212],"tassel":[709,159,76,236],"paw_l_rest":[340,715,135,82],"paw_r_rest":[475,715,135,90],"eye_mask_l":[298,432,140,131],"eye_mask_r":[503,426,140,135],"laptop_lid_back":[71,168,882,795],"paw_lid_a":[216,169,591,141],"paw_lid_b":[216,156,591,141],"phone_body":[377,486,270,428],"phone_screen":[393,493,235,398],"hand_phone_l":[193,624,265,400],"hand_phone_r":[575,624,258,400],"thumb_tap_a":[189,614,312,403],"thumb_tap_b":[522,614,312,403],"backpack_lap":[15,491,196,269],"body_lap":[59,489,481,351],"books_lap":[174,709,728,154],"brow_worry_lap":[258,388,208,34],"cheek_lap":[207,467,310,66],"ear_l_back_lap":[124,284,105,182],"ear_r_back_lap":[453,269,87,190],"eye_highlight_l_lap":[258,438,71,70],"eye_highlight_r_lap":[395,428,68,70],"eye_white_l_lap":[253,427,81,76],"eye_white_r_lap":[390,415,81,76],"eyelid_l_lap":[253,427,81,76],"eyelid_r_lap":[390,415,81,76],"eyes_sad_lap":[245,422,233,87],"eyes_smile_lap":[242,425,240,47],"hat_lap":[106,162,415,219],"head_lap":[142,269,379,291],"iris_l_lap":[263,427,57,62],"iris_r_lap":[405,418,48,60],"laptop_base_lap":[234,684,416,71],"laptop_lid_lap":[577,428,370,298],"mouth_neutral_lap":[341,518,51,4],"mouth_open_lap":[334,499,68,33],"mouth_sad_lap":[328,506,77,25],"mouth_smile_lap":[328,514,77,24],"nose_lap":[359,472,29,21],"paw_l_a_lap":[266,609,126,134],"paw_l_b_lap":[266,585,126,134],"paw_r_a_lap":[451,595,126,125],"paw_r_b_lap":[451,571,126,125],"tail_lap":[33,640,178,152],"tassel_lap":[504,239,47,160],"backpack_ph":[164,499,196,251],"body_ph":[299,474,411,306],"books_ph":[162,699,715,244],"brow_worry_ph":[384,389,192,13],"cheek_ph":[347,463,331,45],"ear_l_back_ph":[281,245,129,175],"ear_r_back_ph":[589,214,135,186],"eye_highlight_l_ph":[401,395,53,60],"eye_highlight_r_ph":[542,384,54,57],"eye_white_l_ph":[379,376,96,98],"eye_white_r_ph":[521,365,97,95],"eyelid_l_ph":[377,374,101,103],"eyelid_r_ph":[518,362,102,100],"eyes_sad_ph":[378,365,247,110],"eyes_smile_ph":[381,401,240,36],"hat_ph":[266,128,415,156],"head_ph":[270,232,461,334],"iris_l_ph":[401,395,53,60],"iris_r_ph":[542,384,54,57],"mouth_neutral_ph":[482,493,36,8],"mouth_open_ph":[459,474,65,41],"mouth_sad_ph":[470,483,61,16],"mouth_smile_ph":[470,496,60,18],"nose_ph":[474,444,46,31],"paw_l_a_ph":[324,549,126,141],"paw_l_b_ph":[324,525,126,141],"paw_r_a_ph":[479,549,131,141],"paw_r_b_ph":[479,525,131,141],"phone_body_ph":[389,514,131,181],"phone_screen_ph":[398,523,112,162],"tail_ph":[633,554,227,226],"tassel_ph":[692,222,35,129],"thumb_a_ph":[420,570,39,59],"thumb_b_ph":[493,570,39,59]};
-CatRig.MASKS={"l": "data:image/webp;base64,UklGRgoBAABXRUJQVlA4TP0AAAAvi4AgEA8w//M///Mf8IBba2/d5ufxq+QIHIWreBNyNI3CEVj6wSMUBPDjOF2qiP5PAP5yl724piKupV08omfHMJrjZUiylnWxxM5GdxRjOJoxHWK8PEk7PQ9NvFnprqIcrqoMV1OmS5SXL23Ld9nEn4M6UQAcRAUwiBY0CQHwYhKwmEvMyTxihM0hnSohB1VDBtVCJiU/8uLS/7zJ4TcG1UIOqoZ0qoSAyjEn84hZzCXmxSRgMgAG0YIOogLoRAEAIkct32V7SQFOI22zAegG9vEAgJfSlCf2rlTFXFvxzS37+vbwYUvEEhGQU6QxQ6QwXSQzELlQp4BejftpAA==", "r": "data:image/webp;base64,UklGRgwBAABXRUJQVlA4TP8AAAAvi4AhEA8w//M///Mf8IBba2/d5ufxq2SZkqNwNHI0jcIRWPrBIxQEfuDYXaqI/k8AfrnLXqipCLW0CyN6JobRiKchyVrWxRI7G50oxiCaMQkxnkzSTuahCZuVThXloKoyqKZMSpQnl7bFXTbhc1B3FACHowIYjhY0HQLg6UnA8lxiTs8jRrw5pLtKyOGqIcPVQqZLvuTpS//zpg/fMVwt5HDVkO4qIXDlmNPziFmeS8zTk4DpATAcLehwVADdUQDAkaOW1YB12Z4WAKRtGnVTh/FHHMaF6EYiYIA9lUY9lUpNpVFDEaorjYJSuRXwDBhb47CJY22Jm9uF69uD+0EA", "l_lap": "data:image/webp;base64,UklGRpwAAABXRUJQVlA4TI8AAAAvUMASEA8w//M///Mf8HBT27YTkSmRgBSkgTSkIIEy53sPMNWUEf1n5LaNI86xbrE/Efxk7Pu+h6K95aK/lWK51TbjE42KdaUv7FShO33joCo9y4/a1C6v4y/UuJi1Lg86V7DelWxw1d/n7X99mwEMydsUYcwofBhJDCrGF0ONUccCYC2oLFghLBbX7RcjAAA=", "r_lap": "data:image/webp;base64,UklGRpwAAABXRUJQVlA4TI8AAAAvUMASEA8w//M///Mf8HBT27YTkSmRgBSkgTSkIIEy53sPMNWUEf1n5LaNI86xbrE/Efxk7Pu+h6K95aK/lWK51TbjE42KdaUv7FShO33joCo9y4/a1C6v4y/UuJi1Lg86V7DelWxw1d/n7X99mwEMydsUYcwofBhJDCrGF0ONUccCYC2oLFghLBbX7RcjAAA=", "l_ph": "data:image/webp;base64,UklGRroAAABXRUJQVlA4TK4AAAAvX0AYEA8w//M///Mf8HBT27YTkSmRgJQvjS8NKV8C5WTSfeeHbrqI/jNy2zYSc519Yj+iKjXrvu97q7bbpD43p3YZ4VV9C2o0R8KBH+VuP7XomXCit2rz5ubtgzXKteBSD2uOqD6Wk1eEl9xhIjyp2UraQEa2kSndg8z/kTK7lL6HvKvp+5y8/5wRzk56vjiDnE3OLGcZM87Z507gruAO4W7BzuEu4o6KdFehqQA=", "r_ph": "data:image/webp;base64,UklGRr4AAABXRUJQVlA4TLIAAAAvYIAXEA8w//M///Mf8HAbSZIULfeKawKmYBqYhilrAuL9fNNdsWinRfSfkdu2kdjj3s7Ej0gHtnGe5/kupl0rPrtezKE12uM6SpR1pBv4ifrgF80y000c1Dmu5ZYqKse13FIP1cXruQv+1Mxmo0mDcyajcyfFyWRyWvJwun9OzY9V8zPW/MA1Pz3URkUJQaVBDUJ1Qt1CRXOtJ3NXnw+QHJApkDaQQ5BQPrsg1SjvDmwJ"};
-
-const RIG_BASE=ASSET_BASE+'rig/img/';
-let RIG=null, lookT=0;
-function mountRig(host,dev){          // mèo sprite chạy bằng code (không video)
-  const box=document.createElement('div'); box.className='rigbox'; host.appendChild(box);
-  const r=new CatRig(box,{base:RIG_BASE});
-  r.load(dev).then(()=>{
-    const v=r.view(); host.style.setProperty('--ar',(v[2]/v[1]).toFixed(4)); host.style.aspectRatio=v[2]+'/'+v[1]; host.classList.add('rigm');
-    r.fit(); r.start();
-    if(dev) r.startPose(dev,1100);
-    if('ResizeObserver' in window){ r.ro=new ResizeObserver(()=>r.fit()); r.ro.observe(box); }
-  }).catch(e=>{ console.warn('rig',e); box.innerHTML=''; const im=new Image(); im.src=purl('ngoi'); im.alt=''; im.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;mix-blend-mode:multiply'; box.appendChild(im); host.style.aspectRatio='5/3'; });
-  return r;
-}
-function rigLook(x,y,hold){ if(!RIG) return; RIG.lookClient(x,y); clearTimeout(lookT); lookT=setTimeout(()=>RIG&&RIG.lookAt(0,.12),hold||2600); }
 const LAYERS=new Set();
 class Layer{
   constructor(host,name,o={}){
@@ -779,7 +486,7 @@ class Layer{
    sai/win = clip sai/thành công (cắt đoạn đáng xem). src = vị trí bàn phím/điện thoại trong khung để chữ bay ra. */
 const DEV={
   phone :{lay:'lay_dt',  layFrom:.5, layTo:5.0, layRate:2,  go:'bam_dt', loop:[.25,7.9], sai:'sai_mobi', saiA:[.4,4.6], win:'mobi_hanh_cong', winA:[1.2,5.0], src:[.39,.64]},
-  laptop:{lay:'lay_lap', layFrom:.4, layTo:5.5, layRate:2,  go:'go_lap', loop:[.3,7.4],  sai:'sai_lap',  saiA:[.4,4.6], win:'lap_thanh_cong', winA:[1.2,5.0], src:[.55,.70]}
+  laptop:{clips:true, idle:'lap_idle', intro:'lap_intro', go:'lap_type', loop:[0,1.18], idleLoop:[0,1.68], sai:'lap_wrong', saiA:[0,1.5], win:'lap_win', winA:[0,1.5], src:[.5,.66]}
 };
 const state={dev:null,laid:false,laying:false,flying:false,ready:false,burst:false};
 let SC={};   // các clip trong cảnh đăng nhập: ngoi · lay · go · sai
@@ -793,13 +500,21 @@ tiles.addEventListener('click',e=>{
   tiles.classList.add('chosen'); t.classList.add('sel');
   setTimeout(()=>chooseDevice(t.dataset.dev),450);
 });
-function resetScene(){ for(const k in SC) SC[k].destroy(); SC={}; if(RIG){RIG.destroy();RIG=null} const sc=$('#scene'); sc.innerHTML=''; sc.classList.remove('rigm'); sc.style.aspectRatio=''; }
+function resetScene(){ for(const k in SC) SC[k].destroy(); SC={}; state.intro=false; const sc=$('#scene'); sc.innerHTML=''; sc.classList.remove('clipm'); sc.style.aspectRatio=''; }
 function chooseDevice(dev){
   const c=DEV[dev]; state.dev=dev; state.laid=false; state.laying=false; store.set('att_dev',dev);
   resetScene(); const host=$('#scene');
-  RIG=mountRig(host,dev); state.laid=true;
+  if(c.clips){      // bộ clip ngắn 1–2s: intro → idle (lặp) → gõ (lặp, theo tốc độ gõ) · sai · thắng
+    const sc=$('#scene'); sc.classList.add('clipm'); sc.style.aspectRatio='760/720';
+    SC.idle=new Layer(host,c.idle,{loop:c.idleLoop}); SC.intro=new Layer(host,c.intro); SC.go=new Layer(host,c.go,{loop:c.loop}); SC.sai=new Layer(host,c.sai);
+    state.laid=true; state.intro=true;
+    SC.intro.start({onend:()=>{ state.intro=false; if(performance.now()-lastKey<700) goPlay(); else goIdle(); }});
+    setTimeout(warmStage,1200); $('#loginWrap').dataset.phase='login'; return;
+  }
+  SC.ngoi=new Layer(host,'ngoi',{loop:[4.5,7.0]}); SC.lay=new Layer(host,c.lay); SC.go=new Layer(host,c.go,{loop:c.loop}); SC.sai=new Layer(host,c.sai);
   $('#loginWrap').dataset.phase='login';
   setTimeout(warmStage,1200);                         // tải sẵn clip bay để lúc bấm Vào lớp không bị chờ
+  SC.ngoi.show(); SC.ngoi.play({from:3});          // mèo ngồi trên sách giữa hoa: ~1.5s tỉnh dậy rồi lặp thở/chớp mắt
 }
 $('#changeDev').addEventListener('click',()=>{
   resetScene(); state.dev=null; $('#errMsg').textContent='';
@@ -834,8 +549,8 @@ function skipLay(){           // người dùng gõ khi mèo chưa kịp lấy m
   if(c.layTo-v.currentTime>.75){ try{v.currentTime=c.layTo-.6}catch(e){} }
 }
 // mèo gõ nhanh/chậm theo tốc độ gõ của người dùng
-function goPlay(){ return; /* rig tự xử lý */
-
+function goPlay(){
+  if(state.intro&&SC.intro){ SC.intro.skip(); }
   const now=performance.now(); keyTimes=keyTimes.filter(t=>now-t<1500);
   const cps=keyTimes.length/1.5, rate=Math.max(.85,Math.min(2.4,.75+cps*.3));
   const L=SC.go; if(!L) return;
@@ -843,19 +558,19 @@ function goPlay(){ return; /* rig tự xử lý */
   L.v.playbackRate=rate;
   if(L.v.paused) L.play({rate});
 }
-function goIdle(){ return; const L=SC.go; if(!L||!state.laid) return; L.v.playbackRate=IDLE_RATE; if(L.v.paused) L.play({rate:IDLE_RATE}); }
+function goIdle(){ if(state.dev&&DEV[state.dev].clips){ if(SC.idle&&!state.intro&&!state.burst) SC.idle.start({rate:1}); return; } const L=SC.go; if(!L||!state.laid) return; L.v.playbackRate=IDLE_RATE; if(L.v.paused) L.play({rate:IDLE_RATE}); }
 function onType(e){
   if(!state.dev) return;
   const inp=e.target, now=performance.now(); lastKey=now; keyTimes.push(now);
   if(inp._pasted){ const t=inp._pasted; inp._pasted=null; pasteRain(t,inp); return; }
-  const cp=caretPoint(inp); if(RIG){ RIG.onType(); rigLook(cp[0],cp[1]); }
+  ensureLay(); skipLay();
   if(e.data&&e.inputType&&e.inputType.startsWith('insert')) flyLetter(e.data.slice(-1),inp);
   if(state.laid){ goPlay(); clearTimeout(idleT); idleT=setTimeout(goIdle,450); }
 }
 let flyLast=0, flyLive=0;
 /* DÁN mã lớp / PIN: từng ký tự rơi lần lượt xuống ô nhập (chữ to), mèo gõ nhanh trong lúc đó */
 function simTyping(ms){ const t0=performance.now(); clearInterval(simTyping._t);
-  simTyping._t=setInterval(()=>{ const n=performance.now(); keyTimes.push(n); lastKey=n; if(RIG) RIG.onType(); if(n-t0>ms){ clearInterval(simTyping._t); idleT=setTimeout(goIdle,450);} },70); }
+  simTyping._t=setInterval(()=>{ const n=performance.now(); keyTimes.push(n); lastKey=n; if(state.laid) goPlay(); if(n-t0>ms){ clearInterval(simTyping._t); idleT=setTimeout(goIdle,450);} },70); }
 function pasteRain(text,inp){
   text=String(text).slice(0,24); if(!text||reduce){return}
   const r=cRect(inp), pw=inp.type==='password', fs=innerWidth<600?26:30, y0=r.top+r.height/2;
@@ -872,7 +587,7 @@ function pasteRain(text,inp){
       {duration:720,delay:i*75,easing:'cubic-bezier(.3,.9,.4,1)',fill:'both'}).onfinish=()=>el.remove();
     x+=w;
   });
-  if(RIG){ RIG.onPaste(); const q=cRect(inp); rigLook(q.left+q.width/2,q.top+q.height/2,3200); } simTyping(text.length*75+500);
+  ensureLay(); skipLay(); simTyping(text.length*75+500);
 }
 ['classId','pin'].forEach(id=>$('#'+id).addEventListener('paste',e=>{
   let t=(e.clipboardData||window.clipboardData).getData('text')||''; t=id==='pin'?t.replace(/\D/g,'').slice(0,6):t.trim();
@@ -883,7 +598,7 @@ function flyLetter(ch,inp){
   const now=performance.now();
   if(now-flyLast<85||flyLive>=5) return;           // gõ nhanh: bỏ bớt chữ bay để không dính thành một cục
   flyLast=now; flyLive++;
-  const r=cRect($('#scene')), s=state.dev==='laptop'?[.5,.58]:[.5,.66];
+  const r=cRect($('#scene')), s=DEV[state.dev].src;
   const jx=(Math.random()-.5)*14;
   const sx=r.left+r.width*s[0]+jx, sy=r.top+r.height*s[1];
   const [px,py]=caretPoint(inp);
@@ -899,7 +614,7 @@ function flyLetter(ch,inp){
 ['classId','pin'].forEach(id=>{
   const i=$('#'+id);
   i.addEventListener('input',onType);
-  i.addEventListener('focus',()=>{ const q=cRect(i); rigLook(q.left+q.width/2,q.top+q.height/2,3500); });
+  i.addEventListener('focus',ensureLay);
 });
 $('#classId').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#pin').focus()}});
 // chỉ ghi lại giá trị khi thật sự có ký tự lạ — ghi đè mỗi lần gõ làm bàn phím điện thoại (Gboard) nhân đôi ký tự
@@ -971,7 +686,6 @@ function backToLogin(msg){
   setTimeout(()=>{ if(S) for(const k in S) S[k].pause(); },650);
   setBusy(false);
   $('#errMsg').textContent=msg; flag('#pin');
-  if(RIG){ RIG.start(); RIG.onError(); }
   if(SC.sai){ const a=DEV[state.dev].saiA; SC.sai.start({from:a[0],to:a[1],rate:1.5,onend:()=>{ if(state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); } }}); }   // mèo bối rối → buồn (~2.8s) → quay lại gõ chậm
 }
 
@@ -988,7 +702,7 @@ $('#loginForm').addEventListener('submit',async e=>{
   if(!classId){flag('#classId');bad=true}
   if(!/^\d{4,6}$/.test(pin)){flag('#pin');bad=true}
   if(bad){$('#errMsg').textContent='Vui lòng nhập mã lớp và mã PIN (4–6 số).';return}
-  setBusy(true); if(RIG) RIG.setFace('think'); if(SC.go) SC.go.pause(); if(SC.lay&&state.laying){state.laying=false;state.laid=true;SC.lay.pause();}
+  setBusy(true); if(SC.idle) SC.idle.pause(); if(SC.go) SC.go.pause(); if(SC.lay&&state.laying){state.laying=false;state.laid=true;SC.lay.pause();}
   if($('#remember').checked) store.set('att_class',classId); else store.del('att_class');
   const loginP=callGas('apiLogin',classId,pin).catch(()=>({ok:false,message:'Không kết nối được máy chủ. Thử lại sau.'}));
   const res=await runFlight(loginP);
@@ -1236,13 +950,14 @@ $('#sendBtn').addEventListener('click',async()=>{
 /* ========================= GỬI XONG: MÈO ĂN MỪNG ========================= */
 function celebrate(msg){
   closeCheer(); const host=$('#cheerHost');
+  host.style.aspectRatio=DEV[state.dev||'laptop'].clips?'760/720':''; host.classList.toggle('clipm',!!DEV[state.dev||'laptop'].clips);
+  const L=new Layer(host,DEV[state.dev||'laptop'].win); celebrate.L=L; L.show();
   $('#cheerMsg').textContent=msg; $('#cheer').classList.add('on');
-  const R=mountRig(host); celebrate.R=R; const t0=setInterval(()=>{ if(R.ready){ clearInterval(t0); R.onSuccess(); } },60);
-  celebrate._t=setTimeout(closeCheer,3800);
+  const a=DEV[state.dev||'laptop'].winA; L.play({from:a[0],to:a[1],rate:1.35,onend:()=>{ celebrate._t=setTimeout(closeCheer,900); }});
 }
 function closeCheer(){
   clearTimeout(celebrate._t); $('#cheer').classList.remove('on');
-  if(celebrate.R){celebrate.R.destroy();celebrate.R=null} const h=$('#cheerHost'); h.classList.remove('rigm'); h.style.aspectRatio='';
+  if(celebrate.L){celebrate.L.destroy();celebrate.L=null}
 }
 $('#cheer').addEventListener('click',closeCheer);
 $('#logoutBtn').addEventListener('click',()=>{
@@ -1254,7 +969,6 @@ $('#logoutBtn').addEventListener('click',()=>{
   const lb=$('#logoBtn'); lb.getAnimations().forEach(a=>a.cancel()); lb.classList.remove('show','down'); lb.style.animation='';
   if(S) for(const k in S) S[k].pause(); sbStop();
   show('#login');
-  if(RIG){ RIG.start(); RIG.setFace('idle'); }
   if(SC.go&&state.laid){ try{SC.go.v.currentTime=DEV[state.dev].loop[0]}catch(e){} SC.go.show(); goIdle(); }
   setTimeout(()=>$('#classId').focus(),300);
 });

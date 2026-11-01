@@ -55,3 +55,8 @@ Mã lớp **ABCDEFGH**, PIN **1234** → vào được. Nhập gì khác → mè
 - Chọn thiết bị: mèo nằm trên sách rồi nhún xuống, bật dậy sang tư thế ngồi gõ laptop / ngồi cầm điện thoại (tay gõ lên xuống theo phím, ngón cái bấm).
 - Upload lại TOÀN BỘ assets/rig/img/ (có thêm *_lap.webp và *_ph.webp).
 - Chưa có: cảnh mở cặp (chưa có lớp ảnh). Tư thế laptop dùng tạm mặt mở mắt/miệng (lớp mặt biểu cảm lap đang chờ sửa).
+
+## Bản 10 – quay lại video (laptop 1–2 giây)
+- Máy tính: clip mới lap_intro (2s) → lap_idle (lặp 1.7s) → lap_type (lặp 1.2s, tốc độ theo người gõ) · lap_wrong (1.5s) · lap_win (1.5s). Nền trắng, trộn multiply như cũ.
+- Điện thoại: tạm dùng clip cũ, chờ bộ 9:16.
+- Upload thêm assets/video/lap_*.mp4 và assets/poster/lap_*.jpg. Không cần thư mục rig nữa.
